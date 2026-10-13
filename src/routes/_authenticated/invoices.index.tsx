@@ -6,7 +6,8 @@ import { Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/app/DataTable";
-import { NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
+import { ClientSelect, NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
 import { fmtDate, inr, invoiceDisplayStatus, label } from "@/lib/format";
@@ -23,7 +24,12 @@ export const Route = createFileRoute("/_authenticated/invoices/")({
 
 function InvoicesPage() {
   const { isFinance, loading } = useRoles();
-  const [status, setStatus] = useState("");
+  const [fl, setFl] = useState({
+    status: "",
+    client: "",
+    from: "",
+    to: "",
+  });
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ["invoices"],
@@ -39,7 +45,13 @@ function InvoicesPage() {
   });
   if (loading) return null;
   if (!isFinance) return <NoAccess />;
-  const rows = (q.data ?? []).filter((i) => !status || invoiceDisplayStatus(i) === status);
+  const rows = (q.data ?? []).filter((i) => {
+    if (fl.status && invoiceDisplayStatus(i) !== fl.status) return false;
+    if (fl.client && i.client_id !== fl.client) return false;
+    if (fl.from && (!i.invoice_date || i.invoice_date < fl.from)) return false;
+    if (fl.to && (!i.invoice_date || i.invoice_date > fl.to)) return false;
+    return true;
+  });
   return (
     <div>
       <PageHeader
@@ -57,7 +69,7 @@ function InvoicesPage() {
       <DataTable
         rows={rows}
         loading={q.isLoading}
-        empty="No invoices yet."
+        empty="No invoices match these filters."
         search={(i) => `${i.invoice_no} ${i.clients?.name} ${i.description}`}
         exportFilename="invoices"
         exportTransform={(i) => ({
@@ -76,14 +88,41 @@ function InvoicesPage() {
         })}
         onRowClick={(i) => navigate({ to: "/invoices/$id", params: { id: i.id } })}
         toolbar={
-          <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)} className="w-40">
-            <option value="">All statuses</option>
-            {["draft", "unpaid", "partially_paid", "paid", "overdue", "cancelled"].map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </NativeSelect>
+          <>
+            <NativeSelect
+              value={fl.status}
+              onChange={(e) => setFl((p) => ({ ...p, status: e.target.value }))}
+              className="w-40"
+            >
+              <option value="">All statuses</option>
+              {["draft", "unpaid", "partially_paid", "paid", "overdue", "cancelled"].map((s) => (
+                <option key={s} value={s}>
+                  {label(s)}
+                </option>
+              ))}
+            </NativeSelect>
+            <ClientSelect
+              value={fl.client}
+              onChange={(id) => setFl((p) => ({ ...p, client: id }))}
+              placeholder="All clients"
+              className="w-48"
+              allowClear
+            />
+            <span className="text-xs text-muted-foreground">Date</span>
+            <Input
+              type="date"
+              value={fl.from}
+              onChange={(e) => setFl((p) => ({ ...p, from: e.target.value }))}
+              className="h-9 w-36"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              value={fl.to}
+              onChange={(e) => setFl((p) => ({ ...p, to: e.target.value }))}
+              className="h-9 w-36"
+            />
+          </>
         }
         columns={[
           {

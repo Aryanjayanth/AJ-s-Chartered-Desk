@@ -512,3 +512,93 @@ export const deleteFirm = createServerFn({ method: "POST" })
 
     return { success: true };
   });
+
+export const fetchPracticeFirms = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("firms")
+      .select("id, name, logo_url, owner_email, phone, city, status")
+      .eq("status", "active")
+      .order("name");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((f) => ({
+      ...f,
+      role: "admin",
+      is_current: false,
+    }));
+  });
+
+export const switchActiveFirm = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ firmId: z.string().uuid().nullable() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.user.id;
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ acting_firm_id: data.firmId })
+      .eq("id", userId);
+    if (error) throw new Error(error.message);
+    return { success: true };
+  });
+
+export const registerPracticeFirm = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      name: z.string().trim().min(2, "Firm name must be at least 2 characters"),
+      phone: z.string().trim().nullable().optional(),
+      city: z.string().trim().nullable().optional(),
+      logoUrl: z.string().nullable().optional(),
+      address: z.string().nullable().optional(),
+      gstin: z.string().nullable().optional(),
+      pan: z.string().nullable().optional(),
+      bankDetails: z.string().nullable().optional(),
+      defaultTaxRate: z.number().default(18),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.user.id;
+    const userEmail = context.user.email ?? "";
+
+    // 1. Create firm record
+    const { data: newFirm, error: firmErr } = await supabaseAdmin
+      .from("firms")
+      .insert({
+        name: data.name,
+        phone: data.phone || null,
+        city: data.city || null,
+        logo_url: data.logoUrl || null,
+        owner_email: userEmail,
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (firmErr) throw new Error(firmErr.message);
+
+    // 2. Create settings record
+    await supabaseAdmin.from("settings").insert({
+      firm_id: newFirm.id,
+      firm_name: data.name,
+      address: data.address || null,
+      gstin: data.gstin || null,
+      pan: data.pan || null,
+      phone: data.phone || null,
+      email: userEmail,
+      bank_details: data.bankDetails || null,
+      default_tax_rate: data.defaultTaxRate ?? 18,
+    });
+
+    // 3. Switch active acting_firm_id to the new firm
+    await supabaseAdmin
+      .from("profiles")
+      .update({ acting_firm_id: newFirm.id })
+      .eq("id", userId);
+
+    return { firmId: newFirm.id };
+  });
+

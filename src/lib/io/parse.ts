@@ -143,11 +143,23 @@ export type RowPlan = {
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const TAN_RE = /^[A-Z]{4}[0-9]{5}[A-Z]$/;
 const GSTIN_RE = /^[0-9]{2}[A-Z0-9]{13}$/;
-const PHONE_RE = /^[0-9+\- ]{10,15}$/;
+const PHONE_10_RE = /^[6-9][0-9]{9}$/;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const clean = (s: string) => s.replace(/\u00a0/g, " ").trim();
+
+/** Strips common phone formatting (+91, leading 0, spaces, dashes) to extract raw digits */
+export function normalizePhone(raw: string): string {
+  let digits = raw.replace(/[^0-9]/g, "");
+  // If user entered +91 or 91 with 12 digits, extract the 10 digits
+  if (digits.length === 12 && digits.startsWith("91")) {
+    digits = digits.slice(2);
+  } else if (digits.length === 11 && digits.startsWith("0")) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
 
 export function validateValue(col: Col, raw: string): string | null {
   const v = clean(raw);
@@ -155,12 +167,14 @@ export function validateValue(col: Col, raw: string): string | null {
   switch (col.type) {
     case "email":
       return EMAIL_RE.test(v) ? null : "not a valid email address";
-    case "phone":
-      return PHONE_RE.test(v) ? null : "not a valid phone number (10-15 digits)";
+    case "phone": {
+      const digits = normalizePhone(v);
+      return PHONE_10_RE.test(digits) ? null : "must be exactly 10 digits (e.g. 9876543210)";
+    }
     case "pan":
       return PAN_RE.test(v.toUpperCase())
         ? null
-        : "must be 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)";
+        : "must be exactly 10 characters: 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)";
     case "tan":
       return TAN_RE.test(v.toUpperCase())
         ? null
@@ -275,6 +289,8 @@ export function coerce(col: Col, raw: string): unknown {
       return v;
     case "enum":
       return col.options?.find((o) => o.toLowerCase() === v.toLowerCase()) ?? v;
+    case "phone":
+      return normalizePhone(v);
     default:
       return col.type === "pan" || col.type === "tan" || col.type === "gstin" ? v.toUpperCase() : v;
   }

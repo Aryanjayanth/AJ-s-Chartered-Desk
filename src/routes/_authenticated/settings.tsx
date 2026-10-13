@@ -21,6 +21,7 @@ import { useRoles } from "@/hooks/use-roles";
 import { useCurrentFirm, useSuperAdmin, useUserFirms } from "@/hooks/use-firm";
 import { useAdminPrivacy } from "@/hooks/use-admin-privacy";
 import { AvatarPicker } from "@/components/app/EntityAvatar";
+import { registerPracticeFirm, switchActiveFirm } from "@/lib/firms.functions";
 import { errMsg } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -95,10 +96,14 @@ function SettingsPage() {
   };
 
   const handleSwitchFirm = async (firmId: string) => {
-    const { error } = await supabase.rpc("set_acting_firm", {
-      _firm_id: firmId,
-    });
-    if (error) return toast.error(errMsg(error));
+    try {
+      await switchActiveFirm({ data: { firmId } });
+    } catch {
+      const { error } = await supabase.rpc("set_acting_firm", {
+        _firm_id: firmId,
+      });
+      if (error) return toast.error(errMsg(error));
+    }
     toast.success("Active firm switched");
     qc.invalidateQueries();
   };
@@ -109,10 +114,12 @@ function SettingsPage() {
         title="Settings & Multi-Firm Management"
         subtitle="Manage your registered practice entities, billing details, and workspace preferences."
         actions={
-          <Button onClick={() => setRegisterOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Register New Firm
-          </Button>
+          isSuperAdmin ? (
+            <Button onClick={() => setRegisterOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Register New Firm
+            </Button>
+          ) : undefined
         }
       />
 
@@ -334,20 +341,35 @@ function RegisterFirmDialog({
 
     setSaving(true);
     try {
-      // @ts-expect-error register_firm is a custom RPC
-      const { data: newFid, error } = await supabase.rpc("register_firm", {
-        _name: form.name.trim(),
-        _phone: form.phone.trim() || null,
-        _city: form.city.trim() || null,
-        _logo_url: logo,
-        _address: form.address.trim() || null,
-        _gstin: form.gstin.toUpperCase().trim() || null,
-        _pan: form.pan.toUpperCase().trim() || null,
-        _bank_details: form.bank_details.trim() || null,
-        _default_tax_rate: Number(form.default_tax_rate) || 0,
-      });
-
-      if (error) throw error;
+      try {
+        await registerPracticeFirm({
+          data: {
+            name: form.name.trim(),
+            phone: form.phone.trim() || null,
+            city: form.city.trim() || null,
+            logoUrl: logo,
+            address: form.address.trim() || null,
+            gstin: form.gstin.toUpperCase().trim() || null,
+            pan: form.pan.toUpperCase().trim() || null,
+            bankDetails: form.bank_details.trim() || null,
+            defaultTaxRate: Number(form.default_tax_rate) || 18,
+          },
+        });
+      } catch (srvErr) {
+        // Fallback to RPC if server function fails
+        const { error } = await supabase.rpc("register_firm", {
+          _name: form.name.trim(),
+          _phone: form.phone.trim() || null,
+          _city: form.city.trim() || null,
+          _logo_url: logo,
+          _address: form.address.trim() || null,
+          _gstin: form.gstin.toUpperCase().trim() || null,
+          _pan: form.pan.toUpperCase().trim() || null,
+          _bank_details: form.bank_details.trim() || null,
+          _default_tax_rate: Number(form.default_tax_rate) || 0,
+        });
+        if (error) throw error;
+      }
 
       toast.success("New firm registered and set as active!");
       qc.invalidateQueries();

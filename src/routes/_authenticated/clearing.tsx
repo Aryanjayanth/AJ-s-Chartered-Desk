@@ -17,6 +17,7 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
+  Search,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -183,6 +184,8 @@ function ClearingPage() {
 
   const [selectedFirmId, setSelectedFirmId] = useState(currentFirm?.id ?? "");
   const [cid, setCid] = useState<string | undefined>(search.client);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState<"all" | "has_advance" | "has_unbilled">("all");
   const [drafts, setDrafts] = useState<Record<string, JobDraft>>({});
   const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({});
   const [jobTab, setJobTab] = useState<"pending" | "invoiced" | "all">("pending");
@@ -321,6 +324,19 @@ function ClearingPage() {
       return a.name.localeCompare(b.name);
     });
   }, [jobsQ.data, paysQ.data]);
+
+  const filteredClientGroups = useMemo(() => {
+    return clientGroups.filter((g) => {
+      if (clientFilter === "has_advance" && g.totalAvailMoney <= 0) return false;
+      if (clientFilter === "has_unbilled" && g.unbilledJobsCount <= 0) return false;
+      if (clientSearch.trim()) {
+        const s = clientSearch.trim().toLowerCase();
+        const hay = `${g.name} ${g.code}`.toLowerCase();
+        if (!hay.includes(s)) return false;
+      }
+      return true;
+    });
+  }, [clientGroups, clientFilter, clientSearch]);
 
   // Set default active client
   useEffect(() => {
@@ -734,21 +750,72 @@ function ClearingPage() {
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Left Column: Client List */}
         <Card className="shadow-none">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-3 border-b space-y-2.5">
             <CardTitle className="text-sm flex items-center justify-between">
               <span>Clients / Companies</span>
               <span className="text-xs font-mono font-normal text-muted-foreground">
-                {clientGroups.length} total
+                {filteredClientGroups.length} of {clientGroups.length}
               </span>
             </CardTitle>
+
+            {/* Quick Search Input */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search 300+ clients by name or code…"
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                className="h-8 pl-8 text-xs bg-muted/40"
+              />
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setClientFilter("all")}
+                className={cn(
+                  "px-2 py-0.5 rounded-md font-medium transition-colors",
+                  clientFilter === "all"
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setClientFilter("has_advance")}
+                className={cn(
+                  "px-2 py-0.5 rounded-md font-medium transition-colors",
+                  clientFilter === "has_advance"
+                    ? "bg-emerald-600 text-white font-semibold"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Has Advance
+              </button>
+              <button
+                type="button"
+                onClick={() => setClientFilter("has_unbilled")}
+                className={cn(
+                  "px-2 py-0.5 rounded-md font-medium transition-colors",
+                  clientFilter === "has_unbilled"
+                    ? "bg-blue-600 text-white font-semibold"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Has Unbilled
+              </button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-2.5 max-h-[calc(100vh-220px)] overflow-y-auto">
-            {clientGroups.length === 0 && (
+          <CardContent className="space-y-2.5 pt-3 max-h-[calc(100vh-270px)] overflow-y-auto">
+            {filteredClientGroups.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                No clients with completed work or payments.
+                No clients match your search or filter.
               </p>
             )}
-            {clientGroups.map((g) => {
+            {filteredClientGroups.map((g) => {
               const isSelected = cid === g.id;
               return (
                 <button

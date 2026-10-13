@@ -103,13 +103,12 @@ function AgeingPage() {
                 </th>
               ))}
               <th className="px-3 text-right">Total</th>
-              <th />
             </tr>
           </thead>
           <tbody>
             {clients.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                <td colSpan={7} className="py-12 text-center text-muted-foreground">
                   No receivables to age.
                 </td>
               </tr>
@@ -131,15 +130,6 @@ function AgeingPage() {
                   </td>
                 ))}
                 <td className="px-3 text-right font-semibold tabular-nums">{inr(c.t)}</td>
-                <td className="px-3">
-                  <Link
-                    to="/clearing"
-                    search={{ payment: undefined }}
-                    className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
-                  >
-                    Clear
-                  </Link>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -152,7 +142,6 @@ function AgeingPage() {
                 </td>
               ))}
               <td className="px-3 text-right tabular-nums">{inr(grand)}</td>
-              <td />
             </tr>
           </tfoot>
         </table>

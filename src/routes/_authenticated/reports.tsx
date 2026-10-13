@@ -57,6 +57,23 @@ function ReportsPage() {
   const { isFinance, isManager, loading } = useRoles();
   const [r, setR] = useState(REPORTS[0]);
   const [f, setF] = useState({ from: "", to: "", client: "", service: "" });
+  const [activeRange, setActiveRange] = useState<string>("ALL");
+
+  const setRangeDays = (label: string, days: number | null) => {
+    setActiveRange(label);
+    if (days === null) {
+      setF((p) => ({ ...p, from: "", to: "" }));
+      return;
+    }
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - days);
+    setF((p) => ({
+      ...p,
+      from: start.toISOString().slice(0, 10),
+      to: end.toISOString().slice(0, 10),
+    }));
+  };
   const q = useQuery({
     queryKey: ["report-data"],
     enabled: isFinance,
@@ -330,43 +347,84 @@ function ReportsPage() {
           </>
         }
       />
-      <div className="no-print mb-4 grid gap-3 rounded-lg border bg-card p-3 sm:grid-cols-5">
-        <Field label="Report">
-          <NativeSelect value={r} onChange={(e) => setR(e.target.value)}>
-            {REPORTS.filter((x) => isManager || x !== "Audit Report").map((x) => (
-              <option key={x}>{x}</option>
+      <div className="no-print mb-4 rounded-lg border bg-card p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Quick Period Filter
+          </div>
+          <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs">
+            {[
+              { label: "1M", days: 30 },
+              { label: "2M", days: 60 },
+              { label: "3M", days: 90 },
+              { label: "6M", days: 180 },
+              { label: "1Y", days: 365 },
+              { label: "ALL", days: null },
+            ].map((rng) => (
+              <button
+                key={rng.label}
+                type="button"
+                onClick={() => setRangeDays(rng.label, rng.days)}
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                  activeRange === rng.label
+                    ? "bg-background text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {rng.label}
+              </button>
             ))}
-          </NativeSelect>
-        </Field>
-        <Field label="From">
-          <Input
-            type="date"
-            value={f.from}
-            onChange={(e) => setF({ ...f, from: e.target.value })}
-          />
-        </Field>
-        <Field label="To">
-          <Input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} />
-        </Field>
-        <Field label="Client">
-          <ClientSelect
-            value={f.client}
-            onChange={(id) => setF({ ...f, client: id })}
-            clients={d?.c}
-            placeholder="All clients"
-            allowClear
-          />
-        </Field>
-        <Field label="Service">
-          <NativeSelect value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}>
-            <option value="">All</option>
-            {d?.s.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-5">
+          <Field label="Report">
+            <NativeSelect value={r} onChange={(e) => setR(e.target.value)}>
+              {REPORTS.filter((x) => isManager || x !== "Audit Report").map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="From">
+            <Input
+              type="date"
+              value={f.from}
+              onChange={(e) => {
+                setActiveRange("");
+                setF({ ...f, from: e.target.value });
+              }}
+            />
+          </Field>
+          <Field label="To">
+            <Input
+              type="date"
+              value={f.to}
+              onChange={(e) => {
+                setActiveRange("");
+                setF({ ...f, to: e.target.value });
+              }}
+            />
+          </Field>
+          <Field label="Client">
+            <ClientSelect
+              value={f.client}
+              onChange={(id) => setF({ ...f, client: id })}
+              clients={d?.c}
+              placeholder="All clients"
+              allowClear
+            />
+          </Field>
+          <Field label="Service">
+            <NativeSelect value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}>
+              <option value="">All</option>
+              {d?.s.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        </div>
       </div>
       {d && (
         <ReportCharts

@@ -299,31 +299,6 @@ function OutstandingPage() {
               header: "Status",
               render: (i) => <StatusBadge status={invoiceDisplayStatus(i)} />,
             },
-            {
-              key: "x",
-              header: "",
-              render: (i) => (
-                <div className="flex gap-1">
-                  <Link
-                    to="/clearing"
-                    search={{ payment: undefined }}
-                    className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
-                  >
-                    Clear
-                  </Link>
-                  <button
-                    className="rounded-md border px-2 py-1 text-xs hover:bg-muted"
-                    onClick={() => {
-                      const msg = `Dear ${i.clients?.name}, a gentle reminder that invoice ${i.invoice_no} dated ${fmtDate(i.invoice_date)} has ${inr(i.outstanding)} outstanding (due ${fmtDate(i.due_date)}). Kindly arrange payment at the earliest.`;
-                      navigator.clipboard.writeText(msg);
-                      toast.success("Reminder copied — paste into WhatsApp or email");
-                    }}
-                  >
-                    Remind
-                  </button>
-                </div>
-              ),
-            },
           ]}
         />
       ) : (

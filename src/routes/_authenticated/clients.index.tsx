@@ -51,6 +51,8 @@ type Filters = {
   industry: string;
   staff: string;
   gstType: string;
+  from: string;
+  to: string;
 };
 
 const NO_FILTERS: Filters = {
@@ -60,6 +62,8 @@ const NO_FILTERS: Filters = {
   industry: "",
   staff: "",
   gstType: "",
+  from: "",
+  to: "",
 };
 
 /** Everything a user might plausibly search a client by, in one place. */
@@ -185,6 +189,8 @@ function ClientsPage() {
       if (f.gstType && c.gst_type !== f.gstType) return false;
       if (f.staff === "__unassigned" && c.assigned_staff) return false;
       if (f.staff && f.staff !== "__unassigned" && c.assigned_staff !== f.staff) return false;
+      if (f.from && c.created_at && String(c.created_at).slice(0, 10) < f.from) return false;
+      if (f.to && c.created_at && String(c.created_at).slice(0, 10) > f.to) return false;
       return true;
     });
   }, [all, f]);
@@ -379,6 +385,33 @@ function ClientsPage() {
                 options={options.staff}
                 counts={counts.staff}
               />
+            </ChipFilterRow>
+            <ChipFilterRow label="Onboarded Date">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={f.from}
+                  onChange={(e) => set("from")(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  value={f.to}
+                  onChange={(e) => set("to")(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                />
+                {(f.from || f.to) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => setF((p) => ({ ...p, from: "", to: "" }))}
+                  >
+                    Clear dates
+                  </Button>
+                )}
+              </div>
             </ChipFilterRow>
           </div>
         )}

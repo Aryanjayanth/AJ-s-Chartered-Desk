@@ -77,32 +77,6 @@ function JobsPage() {
     }
   };
 
-  const handleQuickComplete = async (e: React.MouseEvent, j: { id: string; job_code: string; status: string }) => {
-    e.stopPropagation();
-    if (!canEdit("jobs")) {
-      toast.error("You are not authorised to update job status");
-      return;
-    }
-    const newStatus = j.status === "completed" ? "in_progress" : "completed";
-    try {
-      const { error } = await supabase.rpc("update_job_status", {
-        _job_id: j.id,
-        _status: newStatus,
-        _reason: `Status changed to ${newStatus} via quick action`,
-      });
-      if (error) throw error;
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      qc.invalidateQueries({ queryKey: ["job", j.id] });
-      qc.invalidateQueries({ queryKey: ["job-workflow", j.id] });
-      toast.success(
-        newStatus === "completed"
-          ? `Job ${j.job_code} marked as Completed!`
-          : `Job ${j.job_code} status set to In Progress`,
-      );
-    } catch (err) {
-      toast.error(errMsg(err));
-    }
-  };
 
   // Read through the RPC rather than the table
   const q = useQuery({
@@ -327,28 +301,7 @@ function JobsPage() {
             key: "title",
             header: "Title / Service",
             sort: (j) => j.title,
-            render: (j) => {
-              const isDone = j.status === "completed";
-              return (
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "font-medium transition-all",
-                      isDone
-                        ? "line-through text-muted-foreground opacity-60"
-                        : "text-foreground",
-                    )}
-                  >
-                    {j.title}
-                  </span>
-                  {isDone && (
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      <Check className="h-3 w-3" /> Done
-                    </span>
-                  )}
-                </div>
-              );
-            },
+            render: (j) => <span className="font-medium text-foreground">{j.title}</span>,
           },
           {
             key: "c",
@@ -365,18 +318,6 @@ function JobsPage() {
                 {fmtDate(j.created_at)}
               </span>
             ),
-          },
-          {
-            key: "net",
-            header: "Net Fee",
-            align: "right" as const,
-            sort: (j: (typeof all)[number]) => Number(j.net_amount ?? 0),
-            render: (j: (typeof all)[number]) => (j.net_amount == null ? "—" : inr(j.net_amount)),
-          },
-          {
-            key: "staff",
-            header: "Staff",
-            render: (j) => j.assigned_staff_name ?? "—",
           },
           {
             key: "st",

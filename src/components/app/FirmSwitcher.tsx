@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useCurrentFirm, useSuperAdmin, useUserFirms } from "@/hooks/use-firm";
 import { errMsg } from "@/lib/format";
 
+import { switchActiveFirm } from "@/lib/firms.functions";
+
 export function FirmSwitcher() {
   const { isSuperAdmin } = useSuperAdmin();
   const { data: currentFirm } = useCurrentFirm();
@@ -23,11 +25,15 @@ export function FirmSwitcher() {
         aria-label="Switch firm"
         value={currentFirm?.id ?? ""}
         onChange={async (e) => {
-          const selectedFirmId = e.target.value;
-          const { error } = await supabase.rpc("set_acting_firm", {
-            _firm_id: selectedFirmId || (null as unknown as string),
-          });
-          if (error) return toast.error(errMsg(error));
+          const selectedFirmId = e.target.value || null;
+          try {
+            await switchActiveFirm({ data: { firmId: selectedFirmId } });
+          } catch {
+            const { error } = await supabase.rpc("set_acting_firm", {
+              _firm_id: selectedFirmId || (null as unknown as string),
+            });
+            if (error) return toast.error(errMsg(error));
+          }
           await qc.invalidateQueries();
           toast.success("Active firm switched");
         }}

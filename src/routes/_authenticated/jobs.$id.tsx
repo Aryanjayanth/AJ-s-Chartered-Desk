@@ -12,6 +12,7 @@ import { Field, NativeSelect } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles, useRoles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useUserFirms } from "@/hooks/use-firm";
 import {
   errMsg,
   fmtDate,
@@ -88,9 +89,11 @@ function JobDetail() {
     },
   });
 
+  const { data: userFirms } = useUserFirms();
   const [status, setStatus] = useState("");
   const [reason, setReason] = useState("");
   const [edit, setEdit] = useState({
+    firm_id: "",
     due_date: "",
     assigned_staff: "",
     notes: "",
@@ -202,6 +205,7 @@ function JobDetail() {
     if (job) {
       setStatus(job.status);
       setEdit({
+        firm_id: job.firm_id ?? "",
         due_date: job.due_date ?? "",
         assigned_staff: job.assigned_staff ?? "",
         notes: job.notes ?? "",
@@ -285,6 +289,7 @@ function JobDetail() {
         notes: edit.notes || null,
         fee,
         discount: disc,
+        ...(edit.firm_id ? { firm_id: edit.firm_id } : {}),
       })
       .eq("id", id);
     if (error) return toast.error(errMsg(error));
@@ -456,6 +461,12 @@ function JobDetail() {
                   {job.services?.name}
                 </div>
                 <div>
+                  <div className="text-xs text-muted-foreground">Billing Firm</div>
+                  <span className="font-medium text-foreground">
+                    {userFirms?.find((f) => f.id === job.firm_id)?.name ?? "Practice Firm"}
+                  </span>
+                </div>
+                <div>
                   <div className="text-xs text-muted-foreground">Period</div>
                   {fmtDate(job.period_start)} → {fmtDate(job.period_end)}
                 </div>
@@ -528,6 +539,21 @@ function JobDetail() {
                     ))}
                   </NativeSelect>
                 </Field>
+                {userFirms && userFirms.length > 0 && (
+                  <Field label="Billing Firm / Entity (Invoice Header)">
+                    <NativeSelect
+                      value={edit.firm_id}
+                      disabled={job.financial_status !== "open"}
+                      onChange={(e) => setEdit({ ...edit, firm_id: e.target.value })}
+                    >
+                      {userFirms.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name} {f.city ? `(${f.city})` : ""}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                )}
                 <Field label="Notes" className="sm:col-span-2">
                   <Textarea
                     rows={2}

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchPracticeFirms } from "@/lib/firms.functions";
 
 export function useSuperAdmin() {
   const q = useQuery({
@@ -45,7 +46,17 @@ export function useUserFirms() {
   return useQuery<UserFirmItem[]>({
     queryKey: ["user-firms-list"],
     queryFn: async (): Promise<UserFirmItem[]> => {
-      // 1. Try RPC user_firms_list first
+      // 1. Try server function first (bypasses RLS to return all active practice firms)
+      try {
+        const firms = await fetchPracticeFirms();
+        if (Array.isArray(firms) && firms.length > 0) {
+          return firms as UserFirmItem[];
+        }
+      } catch {
+        // fallback
+      }
+
+      // 2. Try RPC user_firms_list
       try {
         // @ts-expect-error user_firms_list is a custom RPC
         const { data, error } = await supabase.rpc("user_firms_list");
@@ -56,7 +67,7 @@ export function useUserFirms() {
         // fallback
       }
 
-      // 2. Direct fallback
+      // 3. Direct table select fallback
       const { data } = await supabase
         .from("firms")
         .select("id, name, logo_url, owner_email, phone, city, status")

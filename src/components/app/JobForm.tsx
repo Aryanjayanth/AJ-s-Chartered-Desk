@@ -411,7 +411,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           currentJob = inserted;
         }
 
-        // Save clearing record for this individual job if advance or deductions entered
+        // Save clearing record and record advance payment if entered
         if (currentJob && (adv > 0 || ded > 0)) {
           try {
             await supabase.rpc("save_job_clearing", {
@@ -425,6 +425,27 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             });
           } catch (clearingErr) {
             console.warn("Could not save initial clearing for job", currentJob.id, clearingErr);
+          }
+
+          // If advance was entered, record an actual payment receipt so it reflects in client balance and clearing
+          if (adv > 0) {
+            try {
+              const { data: authData } = await supabase.auth.getUser();
+              const currentUserId = authData?.user?.id ?? null;
+              await supabase.from("payments").insert({
+                firm_id: targetFirmId,
+                client_id: clientId,
+                job_id: currentJob.id,
+                amount: adv,
+                mode: "bank",
+                payment_date: taskDate || today(),
+                reference: null,
+                narration: `Advance received for job ${currentJob.job_code}`,
+                created_by: currentUserId,
+              });
+            } catch (payErr) {
+              console.warn("Could not record advance payment receipt for job", currentJob.id, payErr);
+            }
           }
         }
 
@@ -459,6 +480,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
       qc.invalidateQueries({ queryKey: ["client-services"] });
       qc.invalidateQueries({ queryKey: ["client360"] });
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["open-payments"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
+      qc.invalidateQueries({ queryKey: ["clearing-v2-data"] });
       onOpenChange(false);
     } catch (err) {
       toast.error(errMsg(err));

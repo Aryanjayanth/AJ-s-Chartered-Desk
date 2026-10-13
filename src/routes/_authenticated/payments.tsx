@@ -53,6 +53,15 @@ function PaymentsPage() {
   // Active view switcher: "entry" | "history"
   const [view, setView] = useState<"entry" | "history">("entry");
 
+  // History filters state
+  const [payFilters, setPayFilters] = useState({
+    client: "",
+    mode: "",
+    status: "",
+    from: "",
+    to: "",
+  });
+
   // Payment Form state
   const [payClientId, setPayClientId] = useState("");
   const [payForm, setPayForm] = useState(emptyPayment);
@@ -263,49 +272,105 @@ function PaymentsPage() {
     </Card>
   );
 
-  const renderTable = (compact = false) => (
-    <div>
-      {!compact && canCreate("payments") && (
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-xs text-muted-foreground">
-            Total active receipts: <strong className="text-foreground">{activePayments.length}</strong>
+  const renderTable = (compact = false) => {
+    const filteredPayments = (payQuery.data ?? []).filter((p) => {
+      if (payFilters.client && p.client_id !== payFilters.client) return false;
+      if (payFilters.mode && p.mode !== payFilters.mode) return false;
+      if (payFilters.status && p.status !== payFilters.status) return false;
+      if (payFilters.from && (!p.payment_date || p.payment_date < payFilters.from)) return false;
+      if (payFilters.to && (!p.payment_date || p.payment_date > payFilters.to)) return false;
+      return true;
+    });
+
+    return (
+      <div>
+        {!compact && canCreate("payments") && (
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">
+              Total active receipts: <strong className="text-foreground">{activePayments.length}</strong>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setView("entry")}
+              className="h-8 text-xs gap-1.5 font-medium cursor-pointer"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              Record a Payment
+            </Button>
           </div>
-          <Button
-            size="sm"
-            onClick={() => setView("entry")}
-            className="h-8 text-xs gap-1.5 font-medium cursor-pointer"
-          >
-            <PlusCircle className="h-3.5 w-3.5" />
-            Record a Payment
-          </Button>
-        </div>
-      )}
-      <DataTable
-        rows={payQuery.data}
-        loading={payQuery.isLoading}
-        onRowClick={(p) => {
-          if (p.job_id) {
-            navigate({ to: "/clearing/$jobId", params: { jobId: p.job_id }, search: {} });
-          } else {
-            navigate({ to: "/clients/$id", params: { id: p.client_id } });
+        )}
+        <DataTable
+          rows={filteredPayments}
+          loading={payQuery.isLoading}
+          onRowClick={(p) => {
+            if (p.job_id) {
+              navigate({ to: "/clearing/$jobId", params: { jobId: p.job_id }, search: {} });
+            } else {
+              navigate({ to: "/clients/$id", params: { id: p.client_id } });
+            }
+          }}
+          empty="No payments match these filters."
+          search={(p) =>
+            `${p.payment_code} ${cname(p.client_id)} ${jcode(p.job_id) ?? "Client Balance"}`
           }
-        }}
-        empty="No payments recorded yet."
-        search={(p) =>
-          `${p.payment_code} ${cname(p.client_id)} ${jcode(p.job_id) ?? "Client Balance"}`
-        }
-        exportFilename="payments"
-        exportTransform={(p) => ({
-          "Receipt Code": p.payment_code,
-          "Client": cname(p.client_id),
-          "Job": jcode(p.job_id) ?? "Client Balance",
-          "Date": fmtDate(p.payment_date),
-          "Mode": MODES[p.mode] ?? p.mode,
-          "Amount": canSeeAmounts("payments") && p.amount != null ? p.amount : "—",
-          "Status": p.status,
-          "Notes": p.narration ?? "",
-        })}
-        columns={[
+          exportFilename="payments"
+          exportTransform={(p) => ({
+            "Receipt Code": p.payment_code,
+            "Client": cname(p.client_id),
+            "Job": jcode(p.job_id) ?? "Client Balance",
+            "Date": fmtDate(p.payment_date),
+            "Mode": MODES[p.mode] ?? p.mode,
+            "Amount": canSeeAmounts("payments") && p.amount != null ? p.amount : "—",
+            "Status": p.status,
+            "Notes": p.narration ?? "",
+          })}
+          toolbar={
+            <>
+              <ClientSelect
+                value={payFilters.client}
+                onChange={(id) => setPayFilters((p) => ({ ...p, client: id }))}
+                placeholder="All clients"
+                className="w-44"
+                allowClear
+              />
+              <NativeSelect
+                value={payFilters.mode}
+                onChange={(e) => setPayFilters((p) => ({ ...p, mode: e.target.value }))}
+                className="w-32"
+              >
+                <option value="">All modes</option>
+                {Object.entries(MODES).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect
+                value={payFilters.status}
+                onChange={(e) => setPayFilters((p) => ({ ...p, status: e.target.value }))}
+                className="w-32"
+              >
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="reversed">Reversed</option>
+              </NativeSelect>
+              <span className="text-xs text-muted-foreground">Date</span>
+              <Input
+                type="date"
+                value={payFilters.from}
+                onChange={(e) => setPayFilters((p) => ({ ...p, from: e.target.value }))}
+                className="h-9 w-36"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={payFilters.to}
+                onChange={(e) => setPayFilters((p) => ({ ...p, to: e.target.value }))}
+                className="h-9 w-36"
+              />
+            </>
+          }
+          columns={[
           {
             key: "payment_code",
             header: "Receipt",
@@ -380,7 +445,8 @@ function PaymentsPage() {
         ]}
       />
     </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-4">

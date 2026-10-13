@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, X } from "lucide-react";
+import { Building2, Plus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,14 @@ import {
   ChipSelect,
   Field,
   FormScreen,
+  NativeSelect,
   PageHeader,
   Section,
   type ChipOption,
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, fmtDate, inr } from "@/lib/format";
 import { RECURRING_FREQS, SERVICE_TYPES } from "@/lib/service-options";
 import { fetchFirmServices } from "@/lib/standard-services";
@@ -50,6 +52,7 @@ const Req = () => <span className="ml-0.5 font-semibold text-destructive">*</spa
 function ServicesPage() {
   const { canCreate, canEdit } = usePermissions();
   const qc = useQueryClient();
+  const { data: userFirms } = useUserFirms();
   const [editing, setEditing] = useState<Svc | "new" | null>(null);
 
   const q = useQuery({
@@ -250,6 +253,9 @@ function ServiceForm({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const { data: userFirms } = useUserFirms();
+  const { data: currentFirm } = useCurrentFirm();
+  const [firmId, setFirmId] = useState(svc?.firm_id || currentFirm?.id || "");
   const [name, setName] = useState(svc?.name ?? "");
   const [type, setType] = useState(svc?.service_type ?? "");
   const [recurring, setRecurring] = useState(svc ? svc.billing_type !== "one_time" : false);
@@ -260,6 +266,12 @@ function ServiceForm({
   const [autoInvoice, setAutoInvoice] = useState(svc?.auto_invoice ?? false);
   const [active, setActive] = useState(svc?.active ?? true);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!firmId && currentFirm?.id) {
+      setFirmId(currentFirm.id);
+    }
+  }, [currentFirm?.id, firmId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -298,6 +310,7 @@ function ServiceForm({
       frequency: recurring ? freq : "one_time",
       auto_invoice: autoInvoice,
       active,
+      ...(firmId ? { firm_id: firmId } : {}),
     };
     const { error } = svc
       ? await supabase.from("services").update(payload).eq("id", svc.id)

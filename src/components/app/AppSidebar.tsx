@@ -22,6 +22,7 @@ import {
   Building2,
   ChevronDown,
   ArrowLeftRight,
+  Layers,
 } from "lucide-react";
 import {
   Sidebar,
@@ -73,6 +74,7 @@ const groups: { label: string; items: Item[]; open?: boolean }[] = [
     items: [
       { title: "Payment Entry", url: "/payments", icon: Wallet, module: "payments" },
       { title: "Payment Clearing", url: "/clearing", icon: Shuffle, roles: M },
+      { title: "Payment Clearing - 1", url: "/clearing-v2", icon: Layers, roles: M },
       { title: "Unallocated", url: "/unallocated", icon: CircleDollarSign, roles: M },
       { title: "Invoices", url: "/invoices", icon: FileText, roles: M },
     ],

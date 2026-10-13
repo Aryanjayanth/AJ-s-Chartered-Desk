@@ -89,17 +89,48 @@ export async function buildTemplateXlsx(entity: Entity): Promise<Blob> {
     dataValidations: { add: (range: string, rule: Record<string, unknown>) => void };
   };
   cols.forEach((c, i) => {
-    if (c.type !== "enum" || !c.options?.length) return;
     const letter = ws.getColumn(i + 1).letter;
-    validationHost.dataValidations.add(`${letter}${FIRST_FILL_ROW}:${letter}${LAST_FILL_ROW}`, {
-      type: "list",
-      allowBlank: true,
-      formulae: [`"${c.options.join(",")}"`],
-      showErrorMessage: true,
-      errorStyle: "warning",
-      errorTitle: `Invalid ${c.label}`,
-      error: `Choose one of: ${c.options.join(", ")}`,
-    });
+    const range = `${letter}${FIRST_FILL_ROW}:${letter}${LAST_FILL_ROW}`;
+
+    if (c.type === "enum" && c.options?.length) {
+      validationHost.dataValidations.add(range, {
+        type: "list",
+        allowBlank: true,
+        formulae: [`"${c.options.join(",")}"`],
+        showErrorMessage: true,
+        errorStyle: "warning",
+        errorTitle: `Invalid ${c.label}`,
+        error: `Choose one of: ${c.options.join(", ")}`,
+      });
+    } else if (c.type === "phone") {
+      validationHost.dataValidations.add(range, {
+        type: "textLength",
+        operator: "equal",
+        allowBlank: !c.required,
+        formulae: [10],
+        showInputMessage: true,
+        promptTitle: "10-Digit Mobile",
+        prompt: "Enter exactly 10 digits without country code or spaces.",
+        showErrorMessage: true,
+        errorStyle: "stop",
+        errorTitle: `Invalid ${c.label}`,
+        error: "Phone number must be exactly 10 digits.",
+      });
+    } else if (c.type === "pan") {
+      validationHost.dataValidations.add(range, {
+        type: "textLength",
+        operator: "equal",
+        allowBlank: true,
+        formulae: [10],
+        showInputMessage: true,
+        promptTitle: "10-Character PAN",
+        prompt: "5 letters, 4 numbers, 1 letter (e.g. ABCDE1234F).",
+        showErrorMessage: true,
+        errorStyle: "stop",
+        errorTitle: `Invalid ${c.label}`,
+        error: "PAN must be exactly 10 characters.",
+      });
+    }
   });
 
   cols.forEach((c, i) => {

@@ -17,6 +17,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedAgeingRouteImport } from './routes/_authenticated/ageing'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedClearingRouteImport } from './routes/_authenticated/clearing'
+import { Route as AuthenticatedClearingV2RouteImport } from './routes/_authenticated/clearing-v2'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedExceptionsRouteImport } from './routes/_authenticated/exceptions'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated/expenses'
@@ -78,6 +79,11 @@ const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
 const AuthenticatedClearingRoute = AuthenticatedClearingRouteImport.update({
   id: '/clearing',
   path: '/clearing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedClearingV2Route = AuthenticatedClearingV2RouteImport.update({
+  id: '/clearing-v2',
+  path: '/clearing-v2',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -212,6 +218,7 @@ export interface FileRoutesByFullPath {
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/clearing': typeof AuthenticatedClearingRouteWithChildren
+  '/clearing-v2': typeof AuthenticatedClearingV2Route
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/clearing': typeof AuthenticatedClearingRouteWithChildren
+  '/clearing-v2': typeof AuthenticatedClearingV2Route
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
@@ -278,6 +286,7 @@ export interface FileRoutesById {
   '/_authenticated/ageing': typeof AuthenticatedAgeingRoute
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/clearing': typeof AuthenticatedClearingRouteWithChildren
+  '/_authenticated/clearing-v2': typeof AuthenticatedClearingV2Route
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/exceptions': typeof AuthenticatedExceptionsRoute
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
@@ -312,6 +321,7 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
+    | '/clearing-v2'
     | '/dashboard'
     | '/exceptions'
     | '/expenses'
@@ -344,6 +354,7 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
+    | '/clearing-v2'
     | '/dashboard'
     | '/exceptions'
     | '/expenses'
@@ -377,6 +388,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ageing'
     | '/_authenticated/audit'
     | '/_authenticated/clearing'
+    | '/_authenticated/clearing-v2'
     | '/_authenticated/dashboard'
     | '/_authenticated/exceptions'
     | '/_authenticated/expenses'
@@ -465,6 +477,13 @@ declare module '@tanstack/react-router' {
       path: '/clearing'
       fullPath: '/clearing'
       preLoaderRoute: typeof AuthenticatedClearingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/clearing-v2': {
+      id: '/_authenticated/clearing-v2'
+      path: '/clearing-v2'
+      fullPath: '/clearing-v2'
+      preLoaderRoute: typeof AuthenticatedClearingV2RouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -649,6 +668,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAgeingRoute: typeof AuthenticatedAgeingRoute
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedClearingRoute: typeof AuthenticatedClearingRouteWithChildren
+  AuthenticatedClearingV2Route: typeof AuthenticatedClearingV2Route
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedExceptionsRoute: typeof AuthenticatedExceptionsRoute
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
@@ -678,6 +698,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAgeingRoute: AuthenticatedAgeingRoute,
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedClearingRoute: AuthenticatedClearingRouteWithChildren,
+  AuthenticatedClearingV2Route: AuthenticatedClearingV2Route,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedExceptionsRoute: AuthenticatedExceptionsRoute,
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,
