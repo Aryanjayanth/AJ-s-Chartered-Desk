@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, CheckCircle2, ArrowRight, Download, Check, Clock, PauseCircle, XCircle } from "lucide-react";
+import { Plus, CheckCircle2, ArrowRight, Download, Check, Clock, PauseCircle, XCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, NativeSelect, PageHeader } from "@/components/app/common";
+import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter, ConfirmDeleteDialog } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -35,17 +35,32 @@ export const Route = createFileRoute("/_authenticated/jobs/")({
 function JobsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canCreate, canEdit, canSeeAmounts } = usePermissions();
+  const { canCreate, canEdit, canDelete, canSeeAmounts } = usePermissions();
   const { data: profiles } = useProfiles();
   const [open, setOpen] = useState(false);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [jobToDelete, setJobToDelete] = useState<{ id: string; job_code: string } | null>(null);
   const [fl, setFl] = useState({
-    status: "",
     client: "",
     service: "",
     staff: "",
     from: "",
     to: "",
   });
+
+  const handleDeleteJob = async (jobId: string, jobCode: string) => {
+    const { error } = await supabase.from("jobs").delete().eq("id", jobId);
+    if (error) {
+      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
+        toast.error(`Cannot delete job ${jobCode} because it has financial history (invoices or payments).`);
+      } else {
+        toast.error(errMsg(error));
+      }
+    } else {
+      toast.success(`Job ${jobCode} deleted successfully`);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+    }
+  };
 
   const handleBulkStatus = async (
     selectedJobs: any[],
@@ -117,7 +132,7 @@ function JobsPage() {
   const services = [...new Map(all.map((j) => [j.service_id, j.service_name])).entries()];
   const rows = all.filter(
     (j) =>
-      (!fl.status || jobDisplayStatus(j) === fl.status) &&
+      (selectedStatuses.length === 0 || selectedStatuses.includes(jobDisplayStatus(j))) &&
       (!fl.client || j.client_id === fl.client) &&
       (!fl.service || j.service_id === fl.service) &&
       (!fl.staff || j.assigned_staff === fl.staff) &&
@@ -250,14 +265,16 @@ function JobsPage() {
         })}
         toolbar={
           <>
-            <NativeSelect value={fl.status} onChange={s("status")} className="w-36">
-              <option value="">All statuses</option>
-              {[...JOB_STATUSES, "overdue"].map((x) => (
-                <option key={x} value={x}>
-                  {label(x)}
-                </option>
-              ))}
-            </NativeSelect>
+            <ChecklistFilter
+              label="Status"
+              options={[...JOB_STATUSES, "overdue"].map((x) => ({
+                value: x,
+                label: label(x),
+              }))}
+              selected={selectedStatuses}
+              onChange={setSelectedStatuses}
+              className="w-36"
+            />
             <ClientSelect
               value={fl.client}
               onChange={(id) => setFl((p) => ({ ...p, client: id }))}
@@ -363,7 +380,46 @@ function JobsPage() {
               );
             },
           },
+          ...(canDelete("jobs")
+            ? [
+                {
+                  key: "actions",
+                  header: "",
+                  className: "w-10 text-center",
+                  render: (j: any) => {
+                    const hasBilling = Boolean(j.invoice_id || j.financial_status === "closed");
+                    return (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        disabled={hasBilling}
+                        title={hasBilling ? "Cannot delete job with invoice/clearing" : "Delete job"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setJobToDelete({ id: j.id, job_code: j.job_code });
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    );
+                  },
+                },
+              ]
+            : []),
         ]}
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(jobToDelete)}
+        onOpenChange={(open) => !open && setJobToDelete(null)}
+        title={`Delete Job ${jobToDelete?.job_code ?? ""}?`}
+        description="Are you sure you want to delete this job? This action cannot be undone. Jobs with financial transactions cannot be deleted."
+        onConfirm={async () => {
+          if (jobToDelete) {
+            await handleDeleteJob(jobToDelete.id, jobToDelete.job_code);
+          }
+        }}
       />
     </div>
   );

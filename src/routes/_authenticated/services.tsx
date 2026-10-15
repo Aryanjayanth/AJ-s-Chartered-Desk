@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Plus, X } from "lucide-react";
+import { Building2, Plus, X, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   NativeSelect,
   PageHeader,
   Section,
+  ConfirmDeleteDialog,
   type ChipOption,
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
@@ -50,10 +51,25 @@ const FREQ_LABEL: Record<string, string> = Object.fromEntries(
 const Req = () => <span className="ml-0.5 font-semibold text-destructive">*</span>;
 
 function ServicesPage() {
-  const { canCreate, canEdit } = usePermissions();
+  const { canCreate, canEdit, canDelete } = usePermissions();
   const qc = useQueryClient();
   const { data: userFirms } = useUserFirms();
   const [editing, setEditing] = useState<Svc | "new" | null>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<Svc | null>(null);
+
+  const handleDeleteService = async (service: Svc) => {
+    const { error } = await supabase.from("services").delete().eq("id", service.id);
+    if (error) {
+      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
+        toast.error(`Cannot delete "${service.name}" because it is currently assigned to clients or used in compliance jobs.`);
+      } else {
+        toast.error(errMsg(error));
+      }
+    } else {
+      toast.success(`Service "${service.name}" deleted successfully`);
+      qc.invalidateQueries({ queryKey: ["services-all"] });
+    }
+  };
 
   const q = useQuery({
     queryKey: ["services-all"],
@@ -194,7 +210,42 @@ function ServicesPage() {
             render: (s) => <StatusBadge status={s.active ? "active" : "inactive"} />,
           },
           { key: "created_at", header: "Created", render: (s) => fmtDate(s.created_at) },
+          ...(canDelete("services")
+            ? [
+                {
+                  key: "actions",
+                  header: "",
+                  className: "w-10 text-center",
+                  render: (s: Svc) => (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      title="Delete service"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setServiceToDelete(s);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
         ]}
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(serviceToDelete)}
+        onOpenChange={(open) => !open && setServiceToDelete(null)}
+        title={`Delete Service "${serviceToDelete?.name ?? ""}"?`}
+        description="Are you sure you want to delete this service? Services that are assigned to clients or referenced by active compliance jobs cannot be deleted."
+        onConfirm={async () => {
+          if (serviceToDelete) {
+            await handleDeleteService(serviceToDelete);
+          }
+        }}
       />
     </div>
   );

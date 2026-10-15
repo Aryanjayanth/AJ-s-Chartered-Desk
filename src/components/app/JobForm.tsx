@@ -33,6 +33,7 @@ import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, FREQS, inr, today } from "@/lib/format";
 import { firstDuePreview, monthLabel, normalizeServiceType } from "@/lib/service-options";
 import { fetchFirmServices } from "@/lib/standard-services";
+import { switchActiveFirm } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 
 export interface JobServiceRow {
@@ -249,7 +250,19 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
     setSaving(true);
     try {
       const defaultStaff = selectedClient?.assigned_staff || null;
-      const targetFirmId = selectedFirmId || currentFirm?.id || undefined;
+
+      // Ensure active acting firm in DB matches targetFirmId to prevent RLS "firm isolation" violation
+      const { data: dbFirmRes } = await supabase.rpc("current_firm_id");
+      const dbCurrentFirmId = (dbFirmRes as string | null) || null;
+      const targetFirmId = selectedFirmId || dbCurrentFirmId || currentFirm?.id || undefined;
+
+      if (targetFirmId && targetFirmId !== dbCurrentFirmId) {
+        try {
+          await switchActiveFirm({ data: { firmId: targetFirmId } });
+        } catch {
+          await supabase.rpc("set_acting_firm", { _firm_id: targetFirmId });
+        }
+      }
 
       // Prepare configs for each service item
       const itemConfigs: {
@@ -532,7 +545,18 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               </label>
               <NativeSelect
                 value={selectedFirmId}
-                onChange={(e) => setSelectedFirmId(e.target.value)}
+                onChange={async (e) => {
+                  const newFid = e.target.value;
+                  setSelectedFirmId(newFid);
+                  if (newFid) {
+                    try {
+                      await switchActiveFirm({ data: { firmId: newFid } });
+                    } catch {
+                      await supabase.rpc("set_acting_firm", { _firm_id: newFid });
+                    }
+                    qc.invalidateQueries();
+                  }
+                }}
               >
                 {userFirms && userFirms.length > 0 ? (
                   userFirms.map((f) => (

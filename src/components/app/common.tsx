@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { X } from "lucide-react";
+import { X, ChevronDown, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 /** Shared layout constants so every full-screen record form lines up exactly. */
@@ -327,6 +329,131 @@ export function NoAccess() {
     <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground">
       You don't have permission to view this page.
     </div>
+  );
+}
+
+export function ChecklistFilter({
+  label: filterLabel,
+  options,
+  selected,
+  onChange,
+  className,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = (val: string) => {
+    if (selected.includes(val)) {
+      onChange(selected.filter((v) => v !== val));
+    } else {
+      onChange([...selected, val]);
+    }
+  };
+
+  const displayText =
+    selected.length === 0
+      ? `All ${filterLabel.toLowerCase()}s`
+      : selected.length === 1
+        ? options.find((o) => o.value === selected[0])?.label || selected[0]
+        : `${filterLabel} (${selected.length})`;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn("h-9 justify-between font-normal text-xs", className)}
+        >
+          <span className="truncate">{displayText}</span>
+          <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="start">
+        <div className="flex items-center justify-between border-b pb-1.5 mb-1.5 px-1">
+          <span className="text-xs font-semibold text-muted-foreground">{filterLabel} Checklist</span>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-[11px] text-primary hover:underline font-medium"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+          {options.map((opt) => {
+            const isChecked = selected.includes(opt.value);
+            return (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+              >
+                <Checkbox
+                  checked={isChecked}
+                  onCheckedChange={() => toggle(opt.value)}
+                />
+                <span className="flex-1 truncate">{opt.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function ConfirmDeleteDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  title: string;
+  description?: string;
+  onConfirm: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <Trash2 className="h-5 w-5" />
+            {title}
+          </DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onConfirm();
+                onOpenChange(false);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

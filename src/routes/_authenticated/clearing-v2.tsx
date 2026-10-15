@@ -570,7 +570,7 @@ export function ClearingV2Page() {
   };
 
   if (loading) return null;
-  if (!isFinance) return <NoAccess title="Payment Clearing" />;
+  if (!isFinance) return <NoAccess />;
 
   // -------------------------------------------------------------
   // FULL SCREEN WORKSPACE VIEW FOR SELECTED CLIENT
@@ -1066,8 +1066,8 @@ export function ClearingV2Page() {
       {/* Page Header */}
       <PageHeader
         title="Payment Clearing - 1"
-        description="Comprehensive 360° clearing desk: monitor advances, future tasks, unbilled work, and settle accounts in 1 click."
-        action={
+        subtitle="Comprehensive 360° clearing desk: monitor advances, future tasks, unbilled work, and settle accounts in 1 click."
+        actions={
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, NativeSelect } from "@/components/app/common";
+import { Field, NativeSelect, ConfirmDeleteDialog } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles, useRoles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -40,9 +40,26 @@ function JobDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { isFinance } = useRoles();
-  const { canEdit, canSeeAmounts } = usePermissions();
+  const { canEdit, canDelete, canSeeAmounts } = usePermissions();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const { data: profiles } = useProfiles();
   const pname = (u: string | null) => profiles?.find((p) => p.id === u)?.full_name ?? "System";
+
+  const handleDeleteJob = async () => {
+    const jobCode = job?.job_code ?? "";
+    const { error } = await supabase.from("jobs").delete().eq("id", id);
+    if (error) {
+      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
+        toast.error(`Cannot delete job ${jobCode} because it already has financial transactions.`);
+      } else {
+        toast.error(errMsg(error));
+      }
+    } else {
+      toast.success(`Job ${jobCode} deleted successfully`);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      navigate({ to: "/jobs" });
+    }
+  };
   const q = useQuery({
     queryKey: ["job", id],
     queryFn: async () => {
@@ -348,6 +365,17 @@ function JobDetail() {
                   </Link>
                 ) : (
                   <StatusBadge status={job.financial_status} />
+                )}
+                {canDelete("jobs") && !inv && job.financial_status !== "closed" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto text-destructive hover:bg-destructive hover:text-destructive-foreground h-7 text-xs"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Delete Job
+                  </Button>
                 )}
               </div>
               <h1 className="mt-1 text-2xl font-semibold">{job.title}</h1>
@@ -825,6 +853,14 @@ function JobDetail() {
           </Card>
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`Delete Job ${job.job_code}?`}
+        description="Are you sure you want to delete this job? This action cannot be undone. Jobs with financial transactions cannot be deleted."
+        onConfirm={handleDeleteJob}
+      />
     </div>
   );
 }

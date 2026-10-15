@@ -1,8 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Mail, Phone, Pencil, Plus, ArrowLeft } from "lucide-react";
+import { Mail, Phone, Pencil, Plus, ArrowLeft, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DataTable } from "@/components/app/DataTable";
-import { Field, NativeSelect, StatCard } from "@/components/app/common";
+import { Field, NativeSelect, StatCard, ConfirmDeleteDialog } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ClientForm } from "@/components/app/ClientForm";
 import { EntityAvatar } from "@/components/app/EntityAvatar";
@@ -49,8 +49,10 @@ export const Route = createFileRoute("/_authenticated/clients/$id")({
 
 function ClientProfile() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
   const { isFinance, isManager } = useRoles();
-  const { canEdit, canCreate, canView } = usePermissions();
+  const { canEdit, canCreate, canDelete, canView } = usePermissions();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const canSeePayments = canView("payments");
   // Service assignments live on client_services, which answers to either the
   // Clients or the Recurring module in Postgres, so mirror that here.
@@ -62,6 +64,21 @@ function ClientProfile() {
   const [edit, setEdit] = useState(false);
   const [link, setLink] = useState(false);
   const qc = useQueryClient();
+
+  const handleDeleteClient = async () => {
+    const { error } = await supabase.from("clients").delete().eq("id", id);
+    if (error) {
+      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
+        toast.error(`Cannot delete client because they have active jobs, invoices, or payments.`);
+      } else {
+        toast.error(errMsg(error));
+      }
+    } else {
+      toast.success("Client deleted successfully");
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      navigate({ to: "/clients" });
+    }
+  };
 
   const q = useQuery({
     queryKey: ["client360", id, isFinance, isManager, canSeePayments],
@@ -252,12 +269,24 @@ function ClientProfile() {
             </div>
           </div>
         </div>
-        {canEdit("clients") && (
-          <Button variant="outline" onClick={() => setEdit(true)}>
-            <Pencil className="mr-1 h-4 w-4" />
-            Edit
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canEdit("clients") && (
+            <Button variant="outline" onClick={() => setEdit(true)}>
+              <Pencil className="mr-1 h-4 w-4" />
+              Edit
+            </Button>
+          )}
+          {canDelete("clients") && (
+            <Button
+              variant="outline"
+              className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete Client
+            </Button>
+          )}
+        </div>
       </div>
 
       <Tabs defaultValue="overview">
@@ -666,6 +695,14 @@ function ClientProfile() {
           </TabsContent>
         )}
       </Tabs>
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`Delete Client "${c.name}"?`}
+        description="Are you sure you want to permanently delete this client? Clients with financial records (invoices, jobs, or payments) cannot be deleted."
+        onConfirm={handleDeleteClient}
+      />
 
       <LinkServiceDialog open={link} onOpenChange={setLink} clientId={id} />
     </div>

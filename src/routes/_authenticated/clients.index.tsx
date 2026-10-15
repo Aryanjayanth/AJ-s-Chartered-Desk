@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Download,
   LayoutGrid,
@@ -12,13 +13,14 @@ import {
   SlidersHorizontal,
   UserRound,
   X,
+  Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/app/DataTable";
-import { ChipFilterRow, ChipSelect, PageHeader, type ChipOption } from "@/components/app/common";
+import { ChipFilterRow, ChipSelect, PageHeader, ConfirmDeleteDialog, type ChipOption } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ClientForm } from "@/components/app/ClientForm";
 import { EntityAvatar } from "@/components/app/EntityAvatar";
@@ -109,13 +111,29 @@ function ClientsPage() {
   const [view, setView] = useState<"cards" | "table">("cards");
   const [showFilters, setShowFilters] = useState(false);
   const [f, setF] = useState<Filters>(NO_FILTERS);
+  const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
   const navigate = useNavigate();
-  const { canCreate } = usePermissions();
+  const qc = useQueryClient();
+  const { canCreate, canDelete } = usePermissions();
   const { data: profiles } = useProfiles();
   const pname = useCallback(
     (id: string | null) => profiles?.find((p) => p.id === id)?.full_name ?? "—",
     [profiles],
   );
+
+  const handleDeleteClient = async (id: string, name: string) => {
+    const { error } = await supabase.from("clients").delete().eq("id", id);
+    if (error) {
+      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
+        toast.error(`Cannot delete "${name}" because they have active jobs, invoices, or payments.`);
+      } else {
+        toast.error(error.message);
+      }
+    } else {
+      toast.success(`Client "${name}" deleted successfully`);
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    }
+  };
 
   const q = useQuery({
     queryKey: ["clients"],
@@ -544,9 +562,44 @@ function ClientsPage() {
               sort: (c) => c.created_at,
               render: (c) => fmtDate(c.created_at),
             },
+            ...(canDelete("clients")
+              ? [
+                  {
+                    key: "actions",
+                    header: "",
+                    className: "w-10 text-center",
+                    render: (c: any) => (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        title="Delete client"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setClientToDelete({ id: c.id, name: c.name });
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
       )}
+
+      <ConfirmDeleteDialog
+        open={Boolean(clientToDelete)}
+        onOpenChange={(open) => !open && setClientToDelete(null)}
+        title={`Delete Client "${clientToDelete?.name ?? ""}"?`}
+        description="Are you sure you want to permanently delete this client? Clients with financial records (invoices, jobs, or payments) cannot be deleted."
+        onConfirm={async () => {
+          if (clientToDelete) {
+            await handleDeleteClient(clientToDelete.id, clientToDelete.name);
+          }
+        }}
+      />
     </div>
   );
 }
