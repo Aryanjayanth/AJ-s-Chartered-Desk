@@ -16,7 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, Field, NativeSelect, PageHeader, ReasonDialog } from "@/components/app/common";
+import {
+  ClientSelect,
+  Field,
+  NativeSelect,
+  PageHeader,
+  ReasonDialog,
+} from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useClientLookup } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -100,8 +106,10 @@ function PaymentsPage() {
       ),
   });
 
-  const cname = (id: string | null) => (id ? clients?.find((c) => c.id === id)?.name ?? "—" : "—");
-  const jcode = (id: string | null) => (id ? jobs?.find((j) => j.id === id)?.job_code ?? null : null);
+  const cname = (id: string | null) =>
+    id ? (clients?.find((c) => c.id === id)?.name ?? "—") : "—";
+  const jcode = (id: string | null) =>
+    id ? (jobs?.find((j) => j.id === id)?.job_code ?? null) : null;
 
   // Financial calculations
   const totalInflow = useMemo(() => {
@@ -141,7 +149,7 @@ function PaymentsPage() {
     setPayBusy(true);
     const { error } = await supabase.from("payments").insert({
       client_id: payClientId,
-      job_id: payForm.job_id || null,
+      job_id: null,
       amount: amt,
       mode: payForm.mode,
       payment_date: payForm.payment_date,
@@ -152,9 +160,7 @@ function PaymentsPage() {
     setPayBusy(false);
     if (error) return toast.error(errMsg(error));
     toast.success("Payment recorded successfully", {
-      description: payForm.job_id
-        ? "Linked to job. You can manage square-off under Payment Clearing."
-        : "Recorded as Client Balance.",
+      description: "Recorded as General Client Deposit Balance.",
       action: {
         label: "View History",
         onClick: () => setView("history"),
@@ -206,22 +212,6 @@ function PaymentsPage() {
               placeholder="Search and select client…"
             />
           </Field>
-
-          {payClientId && (
-            <Field label="Specific Job (Optional)">
-              <NativeSelect
-                value={payForm.job_id}
-                onChange={(e) => setPayForm((prev) => ({ ...prev, job_id: e.target.value }))}
-              >
-                <option value="">General Client Payment (Client Balance)</option>
-                {payClientJobs.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.job_code} — {j.title}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Field>
-          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Amount (₹) *">
@@ -287,7 +277,8 @@ function PaymentsPage() {
         {!compact && canCreate("payments") && (
           <div className="mb-3 flex items-center justify-between">
             <div className="text-xs text-muted-foreground">
-              Total active receipts: <strong className="text-foreground">{activePayments.length}</strong>
+              Total active receipts:{" "}
+              <strong className="text-foreground">{activePayments.length}</strong>
             </div>
             <Button
               size="sm"
@@ -304,7 +295,7 @@ function PaymentsPage() {
           loading={payQuery.isLoading}
           onRowClick={(p) => {
             if (p.job_id) {
-              navigate({ to: "/clearing/$jobId", params: { jobId: p.job_id }, search: {} });
+              navigate({ to: "/clearing", search: { job: p.job_id, client: p.client_id } });
             } else {
               navigate({ to: "/clients/$id", params: { id: p.client_id } });
             }
@@ -316,13 +307,13 @@ function PaymentsPage() {
           exportFilename="payments"
           exportTransform={(p) => ({
             "Receipt Code": p.payment_code,
-            "Client": cname(p.client_id),
-            "Job": jcode(p.job_id) ?? "Client Balance",
-            "Date": fmtDate(p.payment_date),
-            "Mode": MODES[p.mode] ?? p.mode,
-            "Amount": canSeeAmounts("payments") && p.amount != null ? p.amount : "—",
-            "Status": p.status,
-            "Notes": p.narration ?? "",
+            Client: cname(p.client_id),
+            Job: jcode(p.job_id) ?? "Client Balance",
+            Date: fmtDate(p.payment_date),
+            Mode: MODES[p.mode] ?? p.mode,
+            Amount: canSeeAmounts("payments") && p.amount != null ? p.amount : "—",
+            Status: p.status,
+            Notes: p.narration ?? "",
           })}
           toolbar={
             <>
@@ -371,80 +362,84 @@ function PaymentsPage() {
             </>
           }
           columns={[
-          {
-            key: "payment_code",
-            header: "Receipt",
-            sort: (p) => p.payment_code,
-            className: "font-mono text-xs font-semibold text-primary",
-          },
-          {
-            key: "c",
-            header: "Client",
-            render: (p) => (
-              <div className="flex flex-col">
-                <span className="font-semibold text-sm text-foreground">{cname(p.client_id)}</span>
-                {jcode(p.job_id) && (
-                  <span className="text-[11px] font-mono text-muted-foreground">
-                    Job: {jcode(p.job_id)}
+            {
+              key: "payment_code",
+              header: "Receipt",
+              sort: (p) => p.payment_code,
+              className: "font-mono text-xs font-semibold text-primary",
+            },
+            {
+              key: "c",
+              header: "Client",
+              render: (p) => (
+                <div className="flex flex-col">
+                  <span className="font-semibold text-sm text-foreground">
+                    {cname(p.client_id)}
                   </span>
-                )}
-              </div>
-            ),
-          },
-          {
-            key: "d",
-            header: "Date",
-            sort: (p) => p.payment_date,
-            render: (p) => fmtDate(p.payment_date),
-          },
-          {
-            key: "mode",
-            header: "Mode",
-            render: (p) => (
-              <span className="text-xs uppercase text-muted-foreground">{MODES[p.mode] ?? p.mode}</span>
-            ),
-          },
-          {
-            key: "a",
-            header: "Amount",
-            align: "right",
-            sort: (p) => Number(p.amount),
-            render: (p) => (
-              <span className="font-mono font-semibold text-foreground">
-                {canSeeAmounts("payments") && p.amount != null ? inr(p.amount) : "—"}
-              </span>
-            ),
-          },
-          {
-            key: "s",
-            header: "Status",
-            render: (p) => <StatusBadge status={p.status} />,
-          },
-          ...(canEdit("payments")
-            ? [
-                {
-                  key: "x",
-                  header: "",
-                  render: (p: { id: string; status: string }) =>
-                    p.status !== "reversed" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive h-7 px-2 text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRev(p.id);
-                        }}
-                      >
-                        Reverse
-                      </Button>
-                    ),
-                },
-              ]
-            : []),
-        ]}
-      />
-    </div>
+                  {jcode(p.job_id) && (
+                    <span className="text-[11px] font-mono text-muted-foreground">
+                      Job: {jcode(p.job_id)}
+                    </span>
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: "d",
+              header: "Date",
+              sort: (p) => p.payment_date,
+              render: (p) => fmtDate(p.payment_date),
+            },
+            {
+              key: "mode",
+              header: "Mode",
+              render: (p) => (
+                <span className="text-xs uppercase text-muted-foreground">
+                  {MODES[p.mode] ?? p.mode}
+                </span>
+              ),
+            },
+            {
+              key: "a",
+              header: "Amount",
+              align: "right",
+              sort: (p) => Number(p.amount),
+              render: (p) => (
+                <span className="font-mono font-semibold text-foreground">
+                  {canSeeAmounts("payments") && p.amount != null ? inr(p.amount) : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "s",
+              header: "Status",
+              render: (p) => <StatusBadge status={p.status} />,
+            },
+            ...(canEdit("payments")
+              ? [
+                  {
+                    key: "x",
+                    header: "",
+                    render: (p: { id: string; status: string }) =>
+                      p.status !== "reversed" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive h-7 px-2 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRev(p.id);
+                          }}
+                        >
+                          Reverse
+                        </Button>
+                      ),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      </div>
     );
   };
 
@@ -547,7 +542,10 @@ function PaymentsPage() {
               </CardHeader>
               <div className="divide-y text-xs">
                 {activePayments.slice(0, 5).map((p) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 hover:bg-muted/30">
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between p-3 hover:bg-muted/30"
+                  >
                     <div>
                       <div className="font-semibold text-foreground">{cname(p.client_id)}</div>
                       <div className="text-[11px] text-muted-foreground font-mono">

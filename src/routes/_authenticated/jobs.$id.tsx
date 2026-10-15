@@ -2,7 +2,16 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, Receipt, CheckCircle2, ListChecks, Plus, Trash2, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ExternalLink,
+  Receipt,
+  CheckCircle2,
+  ListChecks,
+  Plus,
+  Trash2,
+  Sparkles,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,7 +170,34 @@ function JobDetail() {
       toast.error(errMsg(error));
       setChecklist(null);
     } else {
+      const allDone = next.length > 0 && next.every((it) => it.done);
+      const nextDone = next[idx].done;
+
+      if (allDone && job?.status !== "completed") {
+        await supabase.rpc("update_job_status", {
+          _job_id: id,
+          _status: "completed",
+          _reason: "All checklist items completed",
+        });
+        toast.success("All checklist steps completed — Job marked Completed!");
+      } else if (!nextDone && job?.status === "completed") {
+        await supabase.rpc("update_job_status", {
+          _job_id: id,
+          _status: "in_progress",
+          _reason: "Checklist step reopened",
+        });
+        toast.info("Checklist step reopened — Job returned to In Progress");
+      } else if (job?.status === "pending" && nextDone) {
+        await supabase.rpc("update_job_status", {
+          _job_id: id,
+          _status: "in_progress",
+          _reason: "Checklist started",
+        });
+      }
+
       qc.invalidateQueries({ queryKey: ["job", id] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
     }
   };
 
@@ -435,9 +471,8 @@ function JobDetail() {
                       variant="outline"
                       onClick={() =>
                         navigate({
-                          to: "/clearing/$jobId",
-                          params: { jobId: id },
-                          search: { payment: undefined },
+                          to: "/clearing",
+                          search: { job: id },
                         })
                       }
                     >
@@ -791,9 +826,8 @@ function JobDetail() {
                 className="w-full"
                 onClick={() =>
                   navigate({
-                    to: "/clearing/$jobId",
-                    params: { jobId: id },
-                    search: { payment: undefined },
+                    to: "/clearing",
+                    search: { job: id },
                   })
                 }
               >

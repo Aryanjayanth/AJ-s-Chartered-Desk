@@ -251,9 +251,8 @@ function NewInvoicePage() {
                         size="sm"
                         onClick={() =>
                           navigate({
-                            to: "/clearing/$jobId",
-                            params: { jobId: c.job.job_id },
-                            search: { payment: undefined },
+                            to: "/clearing",
+                            search: { job: c.job.job_id },
                           })
                         }
                       >
@@ -280,7 +279,9 @@ function NewInvoicePage() {
                       </option>
                     ))
                   ) : (
-                    <option value={currentFirm?.id ?? ""}>{currentFirm?.name ?? "Default Firm"}</option>
+                    <option value={currentFirm?.id ?? ""}>
+                      {currentFirm?.name ?? "Default Firm"}
+                    </option>
                   )}
                 </NativeSelect>
               </Field>

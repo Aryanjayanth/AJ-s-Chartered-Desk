@@ -35,7 +35,10 @@ export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
     meta: [
       { title: "Tasks & Subtasks — CA PracticeDesk" },
-      { name: "description", content: "Actionable checklist subtasks and compliance workflow tracking." },
+      {
+        name: "description",
+        content: "Actionable checklist subtasks and compliance workflow tracking.",
+      },
     ],
   }),
   component: TasksPage,
@@ -78,6 +81,8 @@ interface SubtaskRow {
   label: string;
   done: boolean;
   jobStatus: string;
+  totalItems: number;
+  itemNumber: number;
 }
 
 function TasksPage() {
@@ -87,7 +92,9 @@ function TasksPage() {
 
   const [activeTab, setActiveTab] = useState<"subtasks" | "jobs">("subtasks");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [checklistFilter, setChecklistFilter] = useState<"all" | "pending" | "completed">("all");
+  const [checklistFilter, setChecklistFilter] = useState<"all" | "pending" | "completed">(
+    "pending",
+  );
   const [clientFilter, setClientFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
@@ -135,12 +142,13 @@ function TasksPage() {
   const subtasksList = useMemo<SubtaskRow[]>(() => {
     const list: SubtaskRow[] = [];
     for (const job of jobsList) {
-      const items = Array.isArray(job.checklist) && job.checklist.length > 0
-        ? job.checklist
-        : [
-            // If job doesn't have an explicit checklist yet, represent default primary task
-            { label: job.title || "Compliance work execution", done: job.status === "completed" },
-          ];
+      const items =
+        Array.isArray(job.checklist) && job.checklist.length > 0
+          ? job.checklist
+          : [
+              // If job doesn't have an explicit checklist yet, represent default primary task
+              { label: job.title || "Compliance work execution", done: job.status === "completed" },
+            ];
 
       items.forEach((item, idx) => {
         list.push({
@@ -156,6 +164,8 @@ function TasksPage() {
           label: item.label || `Task Step ${idx + 1}`,
           done: !!item.done,
           jobStatus: job.status,
+          totalItems: items.length,
+          itemNumber: idx + 1,
         });
       });
     }
@@ -172,7 +182,7 @@ function TasksPage() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [jobsList]);
 
-  // Toggle checklist subtask directly in Supabase
+  // Toggle checklist subtask directly in Supabase and sync job status
   const handleToggleSubtask = async (subtask: SubtaskRow) => {
     if (!canEdit("jobs")) {
       toast.error("Not authorised to edit tasks");
@@ -182,26 +192,83 @@ function TasksPage() {
     if (!job) return;
 
     let updatedChecklist: ChecklistItem[] = [];
-    if (Array.isArray(job.checklist) && job.checklist.length > 0) {
+    const hasExistingChecklist = Array.isArray(job.checklist) && job.checklist.length > 0;
+
+    const nextDone = !subtask.done;
+    if (hasExistingChecklist) {
       updatedChecklist = job.checklist.map((it, idx) =>
-        idx === subtask.itemIndex ? { ...it, done: !it.done } : it,
+        idx === subtask.itemIndex ? { ...it, done: nextDone } : it,
       );
     } else {
-      updatedChecklist = [{ label: subtask.label, done: !subtask.done }];
+      updatedChecklist = [{ label: subtask.label, done: nextDone }];
     }
 
-    const { error } = await supabase
-      .from("jobs")
-      .update({ checklist: updatedChecklist as unknown as any })
-      .eq("id", job.id);
+    const allDone = updatedChecklist.length > 0 && updatedChecklist.every((it) => it.done);
+    const anyDone = updatedChecklist.some((it) => it.done);
+    const doneCount = updatedChecklist.filter((it) => it.done).length;
+    const totalCount = updatedChecklist.length;
+
+    // Direct update to jobs table to persist checklist and status immediately
+    const jobUpdates: Record<string, any> = {
+      checklist: updatedChecklist,
+    };
+    if (allDone) {
+      jobUpdates.status = "completed";
+      jobUpdates.completed_at = new Date().toISOString();
+    } else if (!nextDone && job.status === "completed") {
+      jobUpdates.status = "in_progress";
+      jobUpdates.completed_at = null;
+    } else if (job.status === "pending" && (nextDone || anyDone)) {
+      jobUpdates.status = "in_progress";
+    }
+
+    const { error } = await supabase.from("jobs").update(jobUpdates).eq("id", job.id);
 
     if (error) {
       toast.error(errMsg(error));
-    } else {
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      const nextDone = !subtask.done;
-      toast.success(nextDone ? `Marked "${subtask.label}" done` : `Marked "${subtask.label}" pending`);
+      return;
     }
+
+    // Auto-advance or revert job status via RPC to trigger audit logs and auto-invoicing
+    if (allDone && job.status !== "completed") {
+      await supabase.rpc("update_job_status", {
+        _job_id: job.id,
+        _status: "completed",
+        _reason: `All ${totalCount} checklist tasks completed (${doneCount}/${totalCount})`,
+      });
+      toast.success(
+        `All ${totalCount} tasks completed! Job "${job.job_code}" marked as done & moved to Clearing Desk.`,
+      );
+    } else if (!nextDone && job.status === "completed") {
+      await supabase.rpc("update_job_status", {
+        _job_id: job.id,
+        _status: "in_progress",
+        _reason: "Checklist subtask reopened",
+      });
+      toast.info(`Task reopened — Job "${job.job_code}" returned to In Progress`);
+    } else if (job.status === "pending" && (nextDone || anyDone)) {
+      await supabase.rpc("update_job_status", {
+        _job_id: job.id,
+        _status: "in_progress",
+        _reason: "Checklist subtask started",
+      });
+      toast.success(
+        `Marked "${subtask.label}" done (${doneCount}/${totalCount}) — Job in progress`,
+      );
+    } else {
+      toast.success(
+        nextDone
+          ? `Marked "${subtask.label}" done (${doneCount}/${totalCount})`
+          : `Marked "${subtask.label}" pending (${doneCount}/${totalCount})`,
+      );
+    }
+
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["jobs"] }),
+      qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
+      qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
+      qc.invalidateQueries({ queryKey: ["clearing-v2-jobs"] }),
+    ]);
   };
 
   // Filtered Subtasks
@@ -231,13 +298,24 @@ function TasksPage() {
 
       if (searchFilter) {
         const s = searchFilter.toLowerCase();
-        const hay = `${st.label} ${st.jobCode} ${st.jobTitle} ${st.clientName} ${st.serviceName} ${st.assignedStaff}`.toLowerCase();
+        const hay =
+          `${st.label} ${st.jobCode} ${st.jobTitle} ${st.clientName} ${st.serviceName} ${st.assignedStaff}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
 
       return true;
     });
-  }, [subtasksList, checklistFilter, selectedStatuses, clientFilter, serviceFilter, dateFrom, dateTo, searchFilter, jobsList]);
+  }, [
+    subtasksList,
+    checklistFilter,
+    selectedStatuses,
+    clientFilter,
+    serviceFilter,
+    dateFrom,
+    dateTo,
+    searchFilter,
+    jobsList,
+  ]);
 
   // Filtered Jobs
   const filteredJobs = useMemo(() => {
@@ -252,7 +330,8 @@ function TasksPage() {
       if (dateTo && j.created_at && j.created_at.slice(0, 10) > dateTo) return false;
       if (searchFilter) {
         const s = searchFilter.toLowerCase();
-        const hay = `${j.job_code} ${j.title} ${j.service_name ?? ""} ${j.client_name ?? ""} ${j.client_code ?? ""}`.toLowerCase();
+        const hay =
+          `${j.job_code} ${j.title} ${j.service_name ?? ""} ${j.client_name ?? ""} ${j.client_code ?? ""}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
       return true;
@@ -431,11 +510,11 @@ function TasksPage() {
           exportFilename="checklist_subtasks"
           exportTransform={(s) => ({
             "Subtask Item": s.label,
-            "Done": s.done ? "Yes" : "No",
+            Done: s.done ? "Yes" : "No",
             "Job Code": s.jobCode,
             "Job Title": s.jobTitle,
-            "Client": s.clientName,
-            "Service": s.serviceName,
+            Client: s.clientName,
+            Service: s.serviceName,
             "Assigned Staff": s.assignedStaff,
             "Due Date": fmtDate(s.dueDate),
           })}
@@ -489,8 +568,8 @@ function TasksPage() {
           columns={[
             {
               key: "done",
-              header: "Done",
-              className: "w-14 text-center",
+              header: "",
+              className: "w-10 text-center",
               render: (st) => (
                 <div
                   className="flex items-center justify-center p-1"
@@ -511,14 +590,24 @@ function TasksPage() {
               sort: (st) => st.label,
               render: (st) => (
                 <div className="space-y-0.5">
-                  <span
-                    className={cn(
-                      "font-medium text-sm block",
-                      st.done ? "line-through text-muted-foreground" : "text-foreground",
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "font-medium text-sm",
+                        st.done ? "line-through text-muted-foreground" : "text-foreground",
+                      )}
+                    >
+                      {st.label}
+                    </span>
+                    {st.totalItems > 1 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground"
+                      >
+                        Step {st.itemNumber} of {st.totalItems}
+                      </Badge>
                     )}
-                  >
-                    {st.label}
-                  </span>
+                  </div>
                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                     <span className="inline-flex items-center gap-1 font-mono text-primary font-semibold">
                       {st.jobCode}
@@ -533,7 +622,9 @@ function TasksPage() {
               key: "client",
               header: "Client",
               sort: (st) => st.clientName,
-              render: (st) => <span className="font-medium text-xs text-foreground">{st.clientName}</span>,
+              render: (st) => (
+                <span className="font-medium text-xs text-foreground">{st.clientName}</span>
+              ),
             },
             {
               key: "service",
@@ -559,22 +650,6 @@ function TasksPage() {
               render: (st) => (
                 <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
                   {fmtDate(st.dueDate)}
-                </span>
-              ),
-            },
-            {
-              key: "status",
-              header: "Task State",
-              render: (st) => (
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    st.done
-                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                      : "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-                  )}
-                >
-                  {st.done ? "Completed" : "Pending"}
                 </span>
               ),
             },
@@ -656,8 +731,8 @@ function TasksPage() {
                   const dataToExport = selected.map((j) => ({
                     "Job Code": j.job_code,
                     "Task to Perform": j.title,
-                    "Client": j.client_name ?? "",
-                    "Status": label(jobDisplayStatus(j)),
+                    Client: j.client_name ?? "",
+                    Status: label(jobDisplayStatus(j)),
                     "Created Date": fmtDate(j.created_at),
                   }));
                   const stamp = new Date().toISOString().slice(0, 10);
@@ -676,8 +751,8 @@ function TasksPage() {
           exportTransform={(j) => ({
             "Job Code": j.job_code,
             "Job Title": j.title,
-            "Client": j.client_name ?? "",
-            "Status": label(jobDisplayStatus(j)),
+            Client: j.client_name ?? "",
+            Status: label(jobDisplayStatus(j)),
             "Checklist Progress": `${j.checklist.filter((i) => i.done).length}/${j.checklist.length} done`,
             "Created Date": fmtDate(j.created_at),
           })}
@@ -733,9 +808,7 @@ function TasksPage() {
               header: "Job Code",
               sort: (j) => j.job_code,
               render: (j) => (
-                <span className="font-mono text-xs font-bold text-primary">
-                  {j.job_code}
-                </span>
+                <span className="font-mono text-xs font-bold text-primary">{j.job_code}</span>
               ),
             },
             {
@@ -752,17 +825,15 @@ function TasksPage() {
               key: "title",
               header: "Job Title",
               sort: (j) => j.title,
-              render: (j) => (
-                <span className="font-medium text-foreground">
-                  {j.title}
-                </span>
-              ),
+              render: (j) => <span className="font-medium text-foreground">{j.title}</span>,
             },
             {
               key: "client",
               header: "Client",
               sort: (j) => j.client_name ?? "",
-              render: (j) => <span className="font-medium text-muted-foreground">{j.client_name ?? "—"}</span>,
+              render: (j) => (
+                <span className="font-medium text-muted-foreground">{j.client_name ?? "—"}</span>
+              ),
             },
             {
               key: "progress",
@@ -775,7 +846,9 @@ function TasksPage() {
                 return (
                   <div className="space-y-1 min-w-[120px]">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-muted-foreground">{done} of {total} done</span>
+                      <span className="text-muted-foreground">
+                        {done} of {total} done
+                      </span>
                       <span className="font-medium font-mono">{pct}%</span>
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">

@@ -110,7 +110,11 @@ function JobClearingPage() {
   });
 
   const payQ = useQuery({
-    queryKey: ["job-payments", jobId, (clientQ.data as { client?: { id: string } } | null)?.client?.id],
+    queryKey: [
+      "job-payments",
+      jobId,
+      (clientQ.data as { client?: { id: string } } | null)?.client?.id,
+    ],
     queryFn: async () => {
       const clientId = (clientQ.data as { client?: { id: string } } | null)?.client?.id;
       let query = supabase
@@ -590,7 +594,7 @@ function JobClearingPage() {
           {canViewExpenses && (
             <Section
               title={`Expenses against this job (${expQ.data?.length ?? 0})`}
-              hint="Shown for context only. Expenses do not change the cleared amount or the invoice."
+              hint="Out-of-pocket costs and reimbursables. Click '+ Add to Bill' to include in Extra Fee (+)."
             >
               {expQ.isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
@@ -609,8 +613,26 @@ function JobClearingPage() {
                           )}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right font-mono">
-                        {e.amount == null ? "—" : inr(e.amount)}
+                      <div className="shrink-0 text-right space-y-1">
+                        <div className="font-mono">{e.amount == null ? "—" : inr(e.amount)}</div>
+                        {!locked && e.amount != null && Number(e.amount) > 0 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px] text-primary"
+                            onClick={() => {
+                              const amt = Number(e.amount);
+                              const curr = Number(draft.other_addition) || 0;
+                              setDraft({ ...draft, other_addition: String(curr + amt) });
+                              toast.success(
+                                `Added ${inr(amt)} (${e.description}) to Extra Fee (+)`,
+                              );
+                            }}
+                          >
+                            + Add to Bill
+                          </Button>
+                        )}
                       </div>
                     </li>
                   ))}

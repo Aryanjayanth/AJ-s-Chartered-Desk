@@ -17,7 +17,6 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedAgeingRouteImport } from './routes/_authenticated/ageing'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedClearingRouteImport } from './routes/_authenticated/clearing'
-import { Route as AuthenticatedClearingV2RouteImport } from './routes/_authenticated/clearing-v2'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedExceptionsRouteImport } from './routes/_authenticated/exceptions'
 import { Route as AuthenticatedExpensesRouteImport } from './routes/_authenticated/expenses'
@@ -33,7 +32,6 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
 import { Route as AuthenticatedUnallocatedRouteImport } from './routes/_authenticated/unallocated'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
-import { Route as AuthenticatedClearingJobIdRouteImport } from './routes/_authenticated/clearing.$jobId'
 import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
 import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
 import { Route as AuthenticatedInvoicesIndexRouteImport } from './routes/_authenticated/invoices.index'
@@ -79,11 +77,6 @@ const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
 const AuthenticatedClearingRoute = AuthenticatedClearingRouteImport.update({
   id: '/clearing',
   path: '/clearing',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedClearingV2Route = AuthenticatedClearingV2RouteImport.update({
-  id: '/clearing-v2',
-  path: '/clearing-v2',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -165,12 +158,6 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedClearingJobIdRoute =
-  AuthenticatedClearingJobIdRouteImport.update({
-    id: '/$jobId',
-    path: '/$jobId',
-    getParentRoute: () => AuthenticatedClearingRoute,
-  } as any)
 const AuthenticatedClientsIndexRoute =
   AuthenticatedClientsIndexRouteImport.update({
     id: '/clients/',
@@ -217,8 +204,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRoute
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
-  '/clearing': typeof AuthenticatedClearingRouteWithChildren
-  '/clearing-v2': typeof AuthenticatedClearingV2Route
+  '/clearing': typeof AuthenticatedClearingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
@@ -234,7 +220,6 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof AuthenticatedTasksRoute
   '/unallocated': typeof AuthenticatedUnallocatedRoute
   '/users': typeof AuthenticatedUsersRoute
-  '/clearing/$jobId': typeof AuthenticatedClearingJobIdRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/invoices/$id': typeof AuthenticatedInvoicesIdRoute
   '/invoices/new': typeof AuthenticatedInvoicesNewRoute
@@ -250,8 +235,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRoute
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
-  '/clearing': typeof AuthenticatedClearingRouteWithChildren
-  '/clearing-v2': typeof AuthenticatedClearingV2Route
+  '/clearing': typeof AuthenticatedClearingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
   '/expenses': typeof AuthenticatedExpensesRoute
@@ -267,7 +251,6 @@ export interface FileRoutesByTo {
   '/tasks': typeof AuthenticatedTasksRoute
   '/unallocated': typeof AuthenticatedUnallocatedRoute
   '/users': typeof AuthenticatedUsersRoute
-  '/clearing/$jobId': typeof AuthenticatedClearingJobIdRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/invoices/$id': typeof AuthenticatedInvoicesIdRoute
   '/invoices/new': typeof AuthenticatedInvoicesNewRoute
@@ -285,8 +268,7 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/ageing': typeof AuthenticatedAgeingRoute
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
-  '/_authenticated/clearing': typeof AuthenticatedClearingRouteWithChildren
-  '/_authenticated/clearing-v2': typeof AuthenticatedClearingV2Route
+  '/_authenticated/clearing': typeof AuthenticatedClearingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/exceptions': typeof AuthenticatedExceptionsRoute
   '/_authenticated/expenses': typeof AuthenticatedExpensesRoute
@@ -302,7 +284,6 @@ export interface FileRoutesById {
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/unallocated': typeof AuthenticatedUnallocatedRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
-  '/_authenticated/clearing/$jobId': typeof AuthenticatedClearingJobIdRoute
   '/_authenticated/clients/$id': typeof AuthenticatedClientsIdRoute
   '/_authenticated/invoices/$id': typeof AuthenticatedInvoicesIdRoute
   '/_authenticated/invoices/new': typeof AuthenticatedInvoicesNewRoute
@@ -321,7 +302,6 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
-    | '/clearing-v2'
     | '/dashboard'
     | '/exceptions'
     | '/expenses'
@@ -337,7 +317,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/unallocated'
     | '/users'
-    | '/clearing/$jobId'
     | '/clients/$id'
     | '/invoices/$id'
     | '/invoices/new'
@@ -354,7 +333,6 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
-    | '/clearing-v2'
     | '/dashboard'
     | '/exceptions'
     | '/expenses'
@@ -370,7 +348,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/unallocated'
     | '/users'
-    | '/clearing/$jobId'
     | '/clients/$id'
     | '/invoices/$id'
     | '/invoices/new'
@@ -388,7 +365,6 @@ export interface FileRouteTypes {
     | '/_authenticated/ageing'
     | '/_authenticated/audit'
     | '/_authenticated/clearing'
-    | '/_authenticated/clearing-v2'
     | '/_authenticated/dashboard'
     | '/_authenticated/exceptions'
     | '/_authenticated/expenses'
@@ -404,7 +380,6 @@ export interface FileRouteTypes {
     | '/_authenticated/tasks'
     | '/_authenticated/unallocated'
     | '/_authenticated/users'
-    | '/_authenticated/clearing/$jobId'
     | '/_authenticated/clients/$id'
     | '/_authenticated/invoices/$id'
     | '/_authenticated/invoices/new'
@@ -477,13 +452,6 @@ declare module '@tanstack/react-router' {
       path: '/clearing'
       fullPath: '/clearing'
       preLoaderRoute: typeof AuthenticatedClearingRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/clearing-v2': {
-      id: '/_authenticated/clearing-v2'
-      path: '/clearing-v2'
-      fullPath: '/clearing-v2'
-      preLoaderRoute: typeof AuthenticatedClearingV2RouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -591,13 +559,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/clearing/$jobId': {
-      id: '/_authenticated/clearing/$jobId'
-      path: '/$jobId'
-      fullPath: '/clearing/$jobId'
-      preLoaderRoute: typeof AuthenticatedClearingJobIdRouteImport
-      parentRoute: typeof AuthenticatedClearingRoute
-    }
     '/_authenticated/clients/': {
       id: '/_authenticated/clients/'
       path: '/clients'
@@ -650,25 +611,11 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface AuthenticatedClearingRouteChildren {
-  AuthenticatedClearingJobIdRoute: typeof AuthenticatedClearingJobIdRoute
-}
-
-const AuthenticatedClearingRouteChildren: AuthenticatedClearingRouteChildren = {
-  AuthenticatedClearingJobIdRoute: AuthenticatedClearingJobIdRoute,
-}
-
-const AuthenticatedClearingRouteWithChildren =
-  AuthenticatedClearingRoute._addFileChildren(
-    AuthenticatedClearingRouteChildren,
-  )
-
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedAgeingRoute: typeof AuthenticatedAgeingRoute
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
-  AuthenticatedClearingRoute: typeof AuthenticatedClearingRouteWithChildren
-  AuthenticatedClearingV2Route: typeof AuthenticatedClearingV2Route
+  AuthenticatedClearingRoute: typeof AuthenticatedClearingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedExceptionsRoute: typeof AuthenticatedExceptionsRoute
   AuthenticatedExpensesRoute: typeof AuthenticatedExpensesRoute
@@ -697,8 +644,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedAgeingRoute: AuthenticatedAgeingRoute,
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
-  AuthenticatedClearingRoute: AuthenticatedClearingRouteWithChildren,
-  AuthenticatedClearingV2Route: AuthenticatedClearingV2Route,
+  AuthenticatedClearingRoute: AuthenticatedClearingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedExceptionsRoute: AuthenticatedExceptionsRoute,
   AuthenticatedExpensesRoute: AuthenticatedExpensesRoute,

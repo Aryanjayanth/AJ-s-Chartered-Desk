@@ -4,76 +4,83 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Sparkles,
-  Wand2,
   CheckCircle2,
-  ReceiptIndianRupee,
-  FileCheck,
-  CircleDollarSign,
-  Plus,
-  Minus,
-  Briefcase,
-  FileText,
   Clock,
   ArrowRight,
-  ChevronDown,
-  ChevronUp,
   Search,
+  Check,
+  Calendar,
+  AlertCircle,
+  FileText,
+  Wallet,
+  ReceiptIndianRupee,
+  ChevronRight,
+  TrendingUp,
+  Briefcase,
+  Layers,
+  ArrowUpRight,
+  Info,
+  DollarSign,
+  User,
+  ShieldCheck,
+  CheckCheck,
+  ArrowLeft,
+  X,
+  CreditCard,
+  Building,
+  RotateCcw,
+  Plus,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { NoAccess, PageHeader, ReasonDialog, Field, NativeSelect } from "@/components/app/common";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader, Field, NativeSelect, NoAccess } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
-import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
-import { KIND_IS_COST, KIND_LABEL } from "@/lib/expenses";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { cn } from "@/lib/utils";
-import { errMsg, fmtDate, inr, invoiceDisplayStatus, MODES, today } from "@/lib/format";
+import {
+  errMsg,
+  fmtDate,
+  inr,
+  invoiceDisplayStatus,
+  JOB_STATUSES,
+  jobDisplayStatus,
+  MODES,
+  today,
+} from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/clearing")({
-  validateSearch: (s: Record<string, unknown>): { payment?: string; client?: string } => ({
-    payment: typeof s.payment === "string" ? s.payment : undefined,
+  ssr: false,
+  validateSearch: (s: Record<string, unknown>): { client?: string; job?: string } => ({
     client: typeof s.client === "string" ? s.client : undefined,
+    job: typeof s.job === "string" ? s.job : undefined,
   }),
   head: () => ({
     meta: [
       { title: "Payment Clearing — CA PracticeDesk" },
       {
         name: "description",
-        content: "Select a client to clear completed jobs, grant discounts, view expenses, and square off.",
+        content:
+          "Client financial clearing, unbilled work, reimbursable expenses, future tasks, advances, and auto-settlement.",
       },
     ],
   }),
   component: ClearingPage,
 });
 
-type Pay = {
-  id: string;
-  client_id: string;
-  job_id: string | null;
-  amount: number | string;
-  allocated_amount: number | string;
-  payment_date: string;
-  payment_code: string;
-  mode: string;
-  status: string;
-  clients: { name: string; client_code: string } | null;
-};
-
-type Expense = {
-  id: string;
-  job_id: string | null;
-  client_id: string | null;
-  amount: number;
-  category: string;
-  description: string;
-  kind: "overhead" | "tax" | "reimbursement";
-  expense_date: string;
-};
-
-type CompletedJob = {
+interface V2Job {
   id: string;
   job_code: string;
   title: string;
@@ -85,8 +92,9 @@ type CompletedJob = {
   net_amount: number;
   completed_at: string | null;
   created_at: string;
-  checklist: unknown;
+  due_date: string | null;
   clients: { id: string; name: string; client_code: string } | null;
+  services: { id: string; name: string } | null;
   job_clearing:
     | {
         id: string;
@@ -97,13 +105,24 @@ type CompletedJob = {
         other_deduction: number;
         other_addition: number;
         final_amount: number;
-        cleared_at: string | null;
-        squared_off_at: string | null;
       }[]
     | null;
-};
+}
 
-type Inv = {
+interface V2Payment {
+  id: string;
+  client_id: string;
+  job_id: string | null;
+  amount: number | string;
+  allocated_amount: number | string;
+  payment_date: string;
+  payment_code: string;
+  mode: string;
+  narration: string | null;
+  clients: { name: string; client_code: string } | null;
+}
+
+interface V2Invoice {
   id: string;
   job_id: string | null;
   client_id: string;
@@ -117,1544 +136,1978 @@ type Inv = {
   invoice_no: string;
   description: string | null;
   status: string;
-};
+}
 
-type JobDraft = {
-  advance: string;
-  discount: string;
-  tds_tcs: string;
-  other_deduction: string;
-  other_addition: string;
-  tax_rate: string;
-  notes: string;
-};
+interface V2Expense {
+  id: string;
+  kind: string;
+  expense_date: string;
+  category: string;
+  description: string;
+  amount: number | string | null;
+  mode: string;
+  paid_to: string | null;
+  reference: string | null;
+  client_id: string | null;
+  job_id: string | null;
+}
 
-const num = (v: string | number | undefined) =>
-  Number.isFinite(Number(v)) && v !== "" && v !== undefined ? Number(v) : 0;
-const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
-const avail = (p: Pay) => Math.max(0, Number(p.amount) - Number(p.allocated_amount));
+const avail = (p: V2Payment) => Math.max(0, Number(p.amount) - Number(p.allocated_amount));
 
-const getJobFinancials = (j: CompletedJob, d?: JobDraft) => {
-  const draft = d || {
-    advance: "0",
-    discount: "0",
-    tds_tcs: "0",
-    other_deduction: "0",
-    other_addition: "0",
-    tax_rate: "0",
-    notes: "",
-  };
-  const gross = Number(j.fee || j.net_amount || 0);
-  const disc = num(draft.discount);
-  const tds = num(draft.tds_tcs);
-  const oDed = num(draft.other_deduction);
-  const oAdd = num(draft.other_addition);
-  const rate = num(draft.tax_rate);
-  const netFinal = Math.max(0, gross - disc - tds - oDed + oAdd);
-  const taxAmt = Math.round(((netFinal * rate) / 100) * 100) / 100;
-  const totalWithTax = netFinal + taxAmt;
-  const adv = num(draft.advance);
-  const balDue = Math.max(0, totalWithTax - adv);
-  const isFullyCovered = balDue === 0;
-  return {
-    gross,
-    disc,
-    tds,
-    oDed,
-    oAdd,
-    rate,
-    netFinal,
-    taxAmt,
-    totalWithTax,
-    adv,
-    balDue,
-    isFullyCovered,
-  };
-};
-
-function ClearingPage() {
+export function ClearingPage() {
   const { isFinance, loading } = useRoles();
   const { canView } = usePermissions();
   const { data: currentFirm } = useCurrentFirm();
-  const { data: userFirms } = useUserFirms();
-  const search = Route.useSearch();
-  const navigate = useNavigate();
   const qc = useQueryClient();
-  const canViewExpenses = canView("expenses");
+  const navigate = useNavigate();
+  const search = Route.useSearch();
 
-  const [selectedFirmId, setSelectedFirmId] = useState(currentFirm?.id ?? "");
-  const [cid, setCid] = useState<string | undefined>(search.client);
-  const [clientSearch, setClientSearch] = useState("");
-  const [clientFilter, setClientFilter] = useState<"all" | "has_advance" | "has_unbilled">("all");
-  const [drafts, setDrafts] = useState<Record<string, JobDraft>>({});
-  const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({});
-  const [jobTab, setJobTab] = useState<"pending" | "invoiced" | "all">("pending");
-  const [busy, setBusy] = useState(false);
-  const [invoiceModalJob, setInvoiceModalJob] = useState<CompletedJob | null>(null);
-  const [invTaxRate, setInvTaxRate] = useState("18");
-  const [invDueDate, setInvDueDate] = useState(today());
-  const [invNotes, setInvNotes] = useState("");
+  // Search & Filters state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "has_balance" | "has_unbilled" | "has_pending_tasks" | "has_expenses"
+  >("all");
 
-  useEffect(() => {
-    if (currentFirm?.id && !selectedFirmId) {
-      setSelectedFirmId(currentFirm.id);
-    }
-  }, [currentFirm?.id, selectedFirmId]);
+  // Full-screen client view mode: null = overview list, string = full screen workspace
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"unbilled" | "future_tasks" | "advances" | "invoices">(
+    "unbilled",
+  );
 
-  // 1. Fetch Completed Jobs
-  const jobsQ = useQuery({
-    queryKey: ["completed-jobs-clearing"],
+  // Payment Modal state for collecting shortfall & clearing 100% Paid (nothing goes to unpaid)
+  const [paymentModal, setPaymentModal] = useState<{
+    jobId?: string;
+    jobCode?: string;
+    grossWork: number;
+    advanceUsed: number;
+    shortfall: number;
+    discountAwarded: number;
+    amount: number;
+    mode: string;
+    paymentDate: string;
+    reference: string;
+  } | null>(null);
+
+  // Per-job adjustment discounts inside full-screen view
+  const [jobDiscounts, setJobDiscounts] = useState<Record<string, number>>({});
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // 1. Fetch ALL Jobs (both completed and pending/future tasks)
+  const allJobsQuery = useQuery({
+    queryKey: ["clearing-v2-jobs"],
     enabled: isFinance,
-    queryFn: async () => {
+    queryFn: async (): Promise<V2Job[]> => {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id,job_code,title,client_id,status,financial_status,fee,discount,net_amount,completed_at,created_at,checklist,clients(id,name,client_code),job_clearing(id,status,advance,tds_tcs,discount,other_deduction,other_addition,final_amount,cleared_at,squared_off_at)",
+          "id,job_code,title,client_id,status,financial_status,fee,discount,net_amount,completed_at,created_at,due_date,clients(id,name,client_code),services(id,name),job_clearing(id,status,advance,tds_tcs,discount,other_deduction,other_addition,final_amount)",
         )
-        .eq("status", "completed")
-        .order("completed_at", { ascending: false });
+        .order("created_at", { ascending: false });
+
       if (error) throw error;
-      return (data ?? []) as unknown as CompletedJob[];
+      return (data ?? []) as unknown as V2Job[];
     },
   });
 
-  // 2. Fetch Payments
-  const paysQ = useQuery({
-    queryKey: ["open-payments"],
+  // 2. Fetch Payments (advances / receipts)
+  const paymentsQuery = useQuery({
+    queryKey: ["clearing-v2-payments"],
     enabled: isFinance,
-    queryFn: async () =>
-      ((
-        await supabase
-          .from("payments")
-          .select("*, clients(name, client_code)")
-          .neq("status", "reversed")
-          .order("payment_date", { ascending: false })
-      ).data ?? []) as Pay[],
+    queryFn: async (): Promise<V2Payment[]> => {
+      const { data, error } = await supabase
+        .from("payments")
+        .select("*, clients(name, client_code)")
+        .neq("status", "reversed")
+        .order("payment_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as V2Payment[];
+    },
   });
 
-  // 3. Fetch Expenses for context
-  const expQ = useQuery({
-    queryKey: ["clearing-expenses"],
-    enabled: isFinance && canViewExpenses,
-    queryFn: async () => {
+  // 3. Fetch Invoices
+  const invoicesQuery = useQuery({
+    queryKey: ["clearing-v2-invoices"],
+    enabled: isFinance,
+    queryFn: async (): Promise<V2Invoice[]> => {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(
+          "id,job_id,client_id,outstanding,total,subtotal,tax_amount,tax_rate,due_date,invoice_date,invoice_no,description,status",
+        )
+        .neq("status", "cancelled")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as V2Invoice[];
+    },
+  });
+
+  // 4. Fetch Client Reimbursable Expenses & Outlays
+  const expensesQuery = useQuery({
+    queryKey: ["clearing-v2-expenses"],
+    enabled: isFinance,
+    queryFn: async (): Promise<V2Expense[]> => {
       const { data, error } = await supabase
         .from("expenses")
-        .select("id,job_id,client_id,amount,category,description,kind,expense_date")
+        .select(
+          "id,kind,expense_date,category,description,amount,mode,paid_to,reference,client_id,job_id",
+        )
         .order("expense_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as Expense[];
+      return (data ?? []) as unknown as V2Expense[];
     },
   });
 
-  // 4. Fetch Client Invoices
-  const invsQ = useQuery({
-    queryKey: ["client-invoices-all"],
-    enabled: isFinance,
-    queryFn: async () =>
-      ((
-        await supabase
-          .from("invoices")
-          .select("id,job_id,client_id,outstanding,total,subtotal,tax_amount,tax_rate,due_date,invoice_date,invoice_no,description,status")
-          .neq("status", "cancelled")
-          .order("created_at", { ascending: false })
-      ).data ?? []) as Inv[],
+  // 5. Fetch Clients lookup
+  const clientsQuery = useQuery({
+    queryKey: ["clearing-v2-clients"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, name, client_code, client_type, mobile")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  // Group clients by completed jobs & payments
-  const clientGroups = useMemo(() => {
+  const jobsList = allJobsQuery.data ?? [];
+  const paymentsList = paymentsQuery.data ?? [];
+  const invoicesList = invoicesQuery.data ?? [];
+  const expensesList = expensesQuery.data ?? [];
+  const clientsList = clientsQuery.data ?? [];
+
+  // Group everything client-centrically
+  const clientSummaries = useMemo(() => {
     const map = new Map<
       string,
       {
-        id: string;
-        name: string;
-        code: string;
-        jobs: CompletedJob[];
-        unbilledJobsCount: number;
-        totalJobFee: number;
-        totalAvailMoney: number;
-        payments: Pay[];
+        clientId: string;
+        clientName: string;
+        clientCode: string;
+        clientType: string;
+        mobile: string | null;
+        totalAdvanceBalance: number;
+        completedJobs: V2Job[];
+        unbilledJobs: V2Job[];
+        futureAndPendingTasks: V2Job[];
+        unbilledFeeTotal: number;
+        openInvoices: V2Invoice[];
+        openInvoicesTotal: number;
+        payments: V2Payment[];
+        expenses: V2Expense[];
+        reimbursableExpensesTotal: number;
       }
     >();
 
-    // Add clients with completed jobs
-    for (const j of jobsQ.data ?? []) {
-      const c = j.clients;
-      if (!c) continue;
-      const x = map.get(j.client_id) ?? {
-        id: j.client_id,
-        name: c.name,
-        code: c.client_code,
-        jobs: [],
-        unbilledJobsCount: 0,
-        totalJobFee: 0,
-        totalAvailMoney: 0,
+    // Seed from all clients
+    for (const c of clientsList) {
+      map.set(c.id, {
+        clientId: c.id,
+        clientName: c.name,
+        clientCode: c.client_code ?? "—",
+        clientType: c.client_type ?? "individual",
+        mobile: c.mobile,
+        totalAdvanceBalance: 0,
+        completedJobs: [],
+        unbilledJobs: [],
+        futureAndPendingTasks: [],
+        unbilledFeeTotal: 0,
+        openInvoices: [],
+        openInvoicesTotal: 0,
         payments: [],
-      };
-      x.jobs.push(j);
-      if (j.financial_status !== "invoiced" && j.financial_status !== "closed") {
-        x.unbilledJobsCount += 1;
-        x.totalJobFee += Number(j.net_amount || j.fee || 0);
+        expenses: [],
+        reimbursableExpensesTotal: 0,
+      });
+    }
+
+    // Assign jobs
+    for (const j of jobsList) {
+      if (!j.client_id) continue;
+      let entry = map.get(j.client_id);
+      if (!entry) {
+        entry = {
+          clientId: j.client_id,
+          clientName: j.clients?.name ?? "Unknown Client",
+          clientCode: j.clients?.client_code ?? "—",
+          clientType: "individual",
+          mobile: null,
+          totalAdvanceBalance: 0,
+          completedJobs: [],
+          unbilledJobs: [],
+          futureAndPendingTasks: [],
+          unbilledFeeTotal: 0,
+          openInvoices: [],
+          openInvoicesTotal: 0,
+          payments: [],
+          expenses: [],
+          reimbursableExpensesTotal: 0,
+        };
+        map.set(j.client_id, entry);
       }
-      map.set(j.client_id, x);
+
+      if (j.status === "completed") {
+        entry.completedJobs.push(j);
+        if (j.financial_status !== "invoiced" && j.financial_status !== "closed") {
+          entry.unbilledJobs.push(j);
+          entry.unbilledFeeTotal += Number(j.net_amount || j.fee || 0);
+        }
+      } else {
+        entry.futureAndPendingTasks.push(j);
+      }
     }
 
-    // Add payments
-    for (const p of paysQ.data ?? []) {
-      const c = p.clients;
-      const unallocated = avail(p);
-      const x = map.get(p.client_id) ?? {
-        id: p.client_id,
-        name: c?.name ?? "—",
-        code: c?.client_code ?? "—",
-        jobs: [],
-        unbilledJobsCount: 0,
-        totalJobFee: 0,
-        totalAvailMoney: 0,
-        payments: [],
-      };
-      x.payments.push(p);
-      x.totalAvailMoney += unallocated;
-      map.set(p.client_id, x);
+    // Assign payments
+    for (const p of paymentsList) {
+      if (!p.client_id) continue;
+      let entry = map.get(p.client_id);
+      if (!entry) {
+        entry = {
+          clientId: p.client_id,
+          clientName: p.clients?.name ?? "Unknown Client",
+          clientCode: p.clients?.client_code ?? "—",
+          clientType: "individual",
+          mobile: null,
+          totalAdvanceBalance: 0,
+          completedJobs: [],
+          unbilledJobs: [],
+          futureAndPendingTasks: [],
+          unbilledFeeTotal: 0,
+          openInvoices: [],
+          openInvoicesTotal: 0,
+          payments: [],
+          expenses: [],
+          reimbursableExpensesTotal: 0,
+        };
+        map.set(p.client_id, entry);
+      }
+      entry.payments.push(p);
+      entry.totalAdvanceBalance += avail(p);
     }
 
-    return [...map.values()].sort((a, b) => {
-      // Prioritize clients with unbilled jobs or available money
-      if (a.unbilledJobsCount > 0 && b.unbilledJobsCount === 0) return -1;
-      if (a.unbilledJobsCount === 0 && b.unbilledJobsCount > 0) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [jobsQ.data, paysQ.data]);
+    // Assign invoices
+    for (const inv of invoicesList) {
+      if (!inv.client_id) continue;
+      const entry = map.get(inv.client_id);
+      if (entry) {
+        const out = Number(inv.outstanding ?? 0);
+        if (out > 0) {
+          entry.openInvoices.push(inv);
+          entry.openInvoicesTotal += out;
+        }
+      }
+    }
 
-  const filteredClientGroups = useMemo(() => {
-    return clientGroups.filter((g) => {
-      if (clientFilter === "has_advance" && g.totalAvailMoney <= 0) return false;
-      if (clientFilter === "has_unbilled" && g.unbilledJobsCount <= 0) return false;
-      if (clientSearch.trim()) {
-        const s = clientSearch.trim().toLowerCase();
-        const hay = `${g.name} ${g.code}`.toLowerCase();
-        if (!hay.includes(s)) return false;
+    // Assign expenses (reimbursables / outlays)
+    for (const exp of expensesList) {
+      const cid = exp.client_id || jobsList.find((j) => j.id === exp.job_id)?.client_id;
+      if (!cid) continue;
+      const entry = map.get(cid);
+      if (entry) {
+        entry.expenses.push(exp);
+        entry.reimbursableExpensesTotal += Number(exp.amount || 0);
+      }
+    }
+
+    return Array.from(map.values())
+      .filter(
+        (c) =>
+          c.totalAdvanceBalance > 0 ||
+          c.unbilledJobs.length > 0 ||
+          c.futureAndPendingTasks.length > 0 ||
+          c.openInvoices.length > 0 ||
+          c.expenses.length > 0,
+      )
+      .sort((a, b) => {
+        if (a.unbilledJobs.length > 0 && b.unbilledJobs.length === 0) return -1;
+        if (a.unbilledJobs.length === 0 && b.unbilledJobs.length > 0) return 1;
+        if (a.totalAdvanceBalance > 0 && b.totalAdvanceBalance === 0) return -1;
+        if (a.totalAdvanceBalance === 0 && b.totalAdvanceBalance > 0) return 1;
+        return a.clientName.localeCompare(b.clientName);
+      });
+  }, [clientsList, jobsList, paymentsList, invoicesList, expensesList]);
+
+  // Overall KPIs
+  const overallKPIs = useMemo(() => {
+    let totalAdvance = 0;
+    let totalUnbilledWork = 0;
+    let totalFutureTasks = 0;
+    let totalOpenInvoices = 0;
+    let totalExpenses = 0;
+
+    for (const c of clientSummaries) {
+      totalAdvance += c.totalAdvanceBalance;
+      totalUnbilledWork += c.unbilledFeeTotal;
+      totalFutureTasks += c.futureAndPendingTasks.length;
+      totalOpenInvoices += c.openInvoicesTotal;
+      totalExpenses += c.reimbursableExpensesTotal;
+    }
+
+    return {
+      totalAdvance,
+      totalUnbilledWork,
+      totalFutureTasks,
+      totalOpenInvoices,
+      totalExpenses,
+    };
+  }, [clientSummaries]);
+
+  // Filtered rows for the list view
+  const filteredSummaries = useMemo(() => {
+    return clientSummaries.filter((c) => {
+      if (statusFilter === "has_balance" && c.totalAdvanceBalance <= 0) return false;
+      if (statusFilter === "has_unbilled" && c.unbilledJobs.length <= 0) return false;
+      if (statusFilter === "has_pending_tasks" && c.futureAndPendingTasks.length <= 0) return false;
+      if (statusFilter === "has_expenses" && c.reimbursableExpensesTotal <= 0) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const hay = `${c.clientName} ${c.clientCode} ${c.mobile || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [clientGroups, clientFilter, clientSearch]);
+  }, [clientSummaries, statusFilter, searchQuery]);
 
-  // Set default active client
-  useEffect(() => {
-    if (cid) return;
-    if (clientGroups.length > 0) {
-      const target = search.payment
-        ? paysQ.data?.find((p) => p.id === search.payment)?.client_id
-        : undefined;
-      setCid(target ?? clientGroups[0].id);
-    }
-  }, [clientGroups, cid, search.payment, paysQ.data]);
+  // Selected client detail for Full Screen
+  const selectedClient = useMemo(() => {
+    if (!selectedClientId) return null;
+    return clientSummaries.find((c) => c.clientId === selectedClientId) ?? null;
+  }, [clientSummaries, selectedClientId]);
 
-  const currentClient = clientGroups.find((g) => g.id === cid);
-  const clientJobs = useMemo(() => {
-    return (jobsQ.data ?? []).filter((j) => j.client_id === cid);
-  }, [jobsQ.data, cid]);
+  // Open Full Screen for a Client
+  const openClientFullScreen = (clientId: string) => {
+    setSelectedClientId(clientId);
+    setActiveTab("unbilled");
 
-  const pendingClientJobs = useMemo(() => {
-    return clientJobs.filter((j) => j.financial_status !== "invoiced" && j.financial_status !== "closed");
-  }, [clientJobs]);
-
-  const invoicedClientJobs = useMemo(() => {
-    return clientJobs.filter((j) => j.financial_status === "invoiced" || j.financial_status === "closed");
-  }, [clientJobs]);
-
-  const displayedJobs = useMemo(() => {
-    if (jobTab === "pending") return pendingClientJobs;
-    if (jobTab === "invoiced") return invoicedClientJobs;
-    return clientJobs;
-  }, [jobTab, pendingClientJobs, invoicedClientJobs, clientJobs]);
-
-  const clientExpenses = useMemo(() => {
-    return (expQ.data ?? []).filter((e) => e.client_id === cid || clientJobs.some((j) => j.id === e.job_id));
-  }, [expQ.data, cid, clientJobs]);
-
-  const clientPayments = useMemo(() => {
-    return (paysQ.data ?? []).filter((p) => p.client_id === cid);
-  }, [paysQ.data, cid]);
-
-  const clientInvoices = useMemo(() => {
-    return (invsQ.data ?? []).filter((i) => i.client_id === cid);
-  }, [invsQ.data, cid]);
-
-  // Financial calculations for active client
-  const totalClientReceived = useMemo(() => {
-    return clientPayments.reduce((s, p) => s + avail(p), 0);
-  }, [clientPayments]);
-
-  const totalAllocated = useMemo(() => {
-    return Object.values(drafts).reduce((s, d) => s + num(d.advance), 0);
-  }, [drafts]);
-
-  const clientRemainingAdvance = totalClientReceived - totalAllocated;
-
-  const coveredJobsCount = useMemo(() => {
-    return pendingClientJobs.filter((j) => {
-      const fin = getJobFinancials(j, drafts[j.id]);
-      return fin.isFullyCovered;
-    }).length;
-  }, [pendingClientJobs, drafts]);
-
-  const handleQuickDiscountToSettle = (jobId: string, shortfall: number) => {
-    setDrafts((prev) => {
-      const d = prev[jobId] || {
-        advance: "0",
-        discount: "0",
-        tds_tcs: "0",
-        other_deduction: "0",
-        other_addition: "0",
-        tax_rate: "0",
-        notes: "",
-      };
-      const curDisc = num(d.discount);
-      return {
-        ...prev,
-        [jobId]: {
-          ...d,
-          discount: String(curDisc + shortfall),
-        },
-      };
-    });
-    toast.success(`Applied ₹${shortfall} discount so job is settled in full!`);
-  };
-
-  // Seed drafts for current client's jobs with smart auto-allocation from money jar
-  useEffect(() => {
-    if (!clientJobs.length) return;
-    setDrafts((prev) => {
-      const next = { ...prev };
-      let pool = totalClientReceived;
-
-      for (const j of clientJobs) {
-        if (!next[j.id]) {
-          const c = j.job_clearing?.[0];
-          const gross = Number(j.fee || j.net_amount || 0);
-          const disc = c ? Number(c.discount || 0) : 0;
-          const tds = c ? Number(c.tds_tcs || 0) : 0;
-          const oDed = c ? Number(c.other_deduction || 0) : 0;
-          const oAdd = c ? Number(c.other_addition || 0) : 0;
-          const netPayable = Math.max(0, gross - disc - tds - oDed + oAdd);
-
-          // If advance was saved use it; otherwise auto-draw from client's money jar
-          let advStr = "0";
-          if (c && c.advance > 0) {
-            advStr = str(c.advance);
-          } else if (pool > 0 && j.financial_status !== "invoiced" && j.financial_status !== "closed") {
-            const autoAdv = Math.min(pool, netPayable);
-            advStr = String(autoAdv);
-            pool -= autoAdv;
-          }
-
-          next[j.id] = {
-            advance: advStr,
-            discount: c ? str(c.discount) : "0",
-            tds_tcs: c ? str(c.tds_tcs) : "0",
-            other_deduction: c ? str(c.other_deduction) : "0",
-            other_addition: c ? str(c.other_addition) : "0",
-            tax_rate: "0",
-            notes: "",
-          };
+    // Initialize drafts for unbilled jobs
+    const target = clientSummaries.find((c) => c.clientId === clientId);
+    if (target) {
+      const initialDrafts: Record<
+        string,
+        {
+          advance: string;
+          discount: string;
+          tds_tcs: string;
+          other_addition: string;
+          notes: string;
         }
-      }
-      return next;
-    });
-  }, [clientJobs, totalClientReceived]);
+      > = {};
+      target.unbilledJobs.forEach((j) => {
+        const clr = j.job_clearing?.[0];
+        const jobExpenses = target.expenses.filter((e) => e.job_id === j.id);
+        const autoExpAdd = jobExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  // Auto-fill available client money into jobs (Auto Square-Off)
-  const handleAutoFill = () => {
-    let moneyPool = totalClientReceived;
-    const nextDrafts = { ...drafts };
-
-    for (const j of pendingClientJobs) {
-      const d = nextDrafts[j.id] || {
-        advance: "0",
-        discount: "0",
-        tds_tcs: "0",
-        other_deduction: "0",
-        other_addition: "0",
-        tax_rate: "0",
-        notes: "",
-      };
-
-      // Compute net payable with GST tax before advance
-      const gross = Number(j.fee || j.net_amount || 0);
-      const disc = num(d.discount);
-      const tds = num(d.tds_tcs);
-      const oDed = num(d.other_deduction);
-      const oAdd = num(d.other_addition);
-      const rate = num(d.tax_rate);
-      const netPayable = Math.max(0, gross - disc - tds - oDed + oAdd);
-      const taxAmt = Math.round((netPayable * rate) / 100 * 100) / 100;
-      const totalInv = netPayable + taxAmt;
-
-      const toAlloc = Math.min(moneyPool, totalInv);
-      nextDrafts[j.id] = {
-        ...d,
-        advance: String(toAlloc),
-      };
-      moneyPool -= toAlloc;
-    }
-
-    setDrafts(nextDrafts);
-    toast.success("Auto-filled client advance across completed jobs!");
-  };
-
-  // Settle any existing unpaid invoice from client money jar
-  const handleSettleInvoiceFromJar = async (invId: string) => {
-    setBusy(true);
-    try {
-      // @ts-expect-error newly created RPC
-      const { error: rpcErr } = await supabase.rpc("allocate_client_jar_to_invoice", {
-        _invoice_id: invId,
-      });
-
-      if (rpcErr) {
-        // Fallback: iterate payments and call allocate_payment
-        const inv = clientInvoices.find((i) => i.id === invId);
-        let needed = Number(inv?.outstanding || 0);
-        for (const p of clientPayments) {
-          const av = avail(p);
-          if (av > 0 && needed > 0) {
-            const take = Math.min(needed, av);
-            await supabase.rpc("allocate_payment", {
-              _payment_id: p.id,
-              _allocations: [{ invoice_id: invId, amount: take }],
-            });
-            needed -= take;
-          }
-        }
-      }
-
-      toast.success("Settled invoice from client money jar!");
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["open-payments"] }),
-        qc.invalidateQueries({ queryKey: ["client-invoices-all"] }),
-        qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
-        qc.invalidateQueries({ queryKey: ["payments-list"] }),
-        qc.invalidateQueries({ queryKey: ["jobs-list"] }),
-      ]);
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Save all job clearing adjustments, square off, and automatically generate invoices
-  const handleSaveAndSquareOff = async (jobId?: string, autoInvoice = true) => {
-    if (!cid) return;
-
-    let targetJobs: CompletedJob[] = [];
-    if (jobId) {
-      const single = clientJobs.find((j) => j.id === jobId);
-      if (!single) return;
-      const fin = getJobFinancials(single, drafts[single.id]);
-      if (!fin.isFullyCovered) {
-        toast.error(
-          `Cannot square off: ₹${fin.balDue} is unpaid. Advance payment or discount is required to settle in full.`,
-        );
-        return;
-      }
-      targetJobs = [single];
-    } else {
-      // Bulk square off: ONLY process jobs that are 100% covered by advance or discount!
-      targetJobs = pendingClientJobs.filter((j) => {
-        const fin = getJobFinancials(j, drafts[j.id]);
-        return fin.isFullyCovered;
-      });
-
-      if (targetJobs.length === 0) {
-        toast.error(
-          "No pending jobs are fully covered by advance or discount. Uncovered jobs cannot be squared off as unpaid.",
-        );
-        return;
-      }
-    }
-
-    setBusy(true);
-    let invoicedCount = 0;
-
-    try {
-      for (const j of targetJobs) {
-        if (j.financial_status === "invoiced" || j.financial_status === "closed") continue;
-        const d = drafts[j.id] || {
-          advance: "0",
-          discount: "0",
-          tds_tcs: "0",
-          other_deduction: "0",
-          other_addition: "0",
-          tax_rate: "0",
+        initialDrafts[j.id] = {
+          advance: clr ? String(clr.advance || 0) : "0",
+          discount: clr ? String(clr.discount || 0) : "0",
+          tds_tcs: clr ? String(clr.tds_tcs || 0) : "0",
+          other_addition: clr
+            ? String(clr.other_addition || 0)
+            : autoExpAdd > 0
+              ? String(autoExpAdd)
+              : "0",
           notes: "",
         };
+      });
+      setJobDrafts(initialDrafts);
+    }
+  };
 
-        const matchingPay = clientPayments.find((p) => p.job_id === j.id || avail(p) > 0);
+  // Close Full Screen view and return to table
+  const closeFullScreen = () => {
+    setSelectedClientId(null);
+  };
 
-        // Try single atomic RPC first
-        // @ts-expect-error square_off_and_invoice_job may be newly added to Supabase
-        const { data: atomicInvId, error: atomicErr } = await supabase.rpc("square_off_and_invoice_job", {
-          _job_id: j.id,
-          _advance: num(d.advance),
-          _tds_tcs: num(d.tds_tcs),
-          _discount: num(d.discount),
-          _other_deduction: num(d.other_deduction),
-          _other_addition: num(d.other_addition),
-          _tax_rate: num(d.tax_rate || 0),
-          _notes: d.notes.trim() || "",
+  // Auto-open client from search params (?client=... or ?job=...)
+  useEffect(() => {
+    if (search.client) {
+      openClientFullScreen(search.client);
+    } else if (search.job && jobsList.length > 0) {
+      const match = jobsList.find((j) => j.id === search.job);
+      if (match?.client_id) {
+        openClientFullScreen(match.client_id);
+      }
+    }
+  }, [search.client, search.job, jobsList]);
+
+  // Calculation helper for client unbilled statistics
+  const clientUnbilledStats = useMemo(() => {
+    if (!selectedClient) {
+      return {
+        totalWorkToBill: 0,
+        advanceInHand: 0,
+        shortfall: 0,
+        isFullyCovered: false,
+      };
+    }
+    let totalWorkToBill = 0;
+    for (const j of selectedClient.unbilledJobs) {
+      const fee = Number(j.net_amount || j.fee || 0);
+      const outlays = selectedClient.expenses
+        .filter((e) => e.job_id === j.id)
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      const disc = jobDiscounts[j.id] || 0;
+      totalWorkToBill += Math.max(0, fee + outlays - disc);
+    }
+    const advanceInHand = selectedClient.totalAdvanceBalance;
+    const shortfall = Math.max(0, totalWorkToBill - advanceInHand);
+    const isFullyCovered = advanceInHand >= totalWorkToBill && totalWorkToBill > 0;
+
+    return {
+      totalWorkToBill,
+      advanceInHand,
+      shortfall,
+      isFullyCovered,
+    };
+  }, [selectedClient, jobDiscounts]);
+
+  // Execute 100% Full Clearance (Guarantees zero unpaid balance)
+  const executeFullClearance = async (params: {
+    client: typeof selectedClient;
+    jobs: V2Job[];
+    newPayment?: { id: string; amount: number } | null;
+    overrideDiscounts?: Record<string, number>;
+  }) => {
+    const targetClient = params.client;
+    if (!targetClient) return;
+    setIsProcessing(true);
+    let count = 0;
+    try {
+      // Build pool of available payments for this client
+      const paymentPool = targetClient.payments
+        .map((p) => ({ id: p.id, avail: avail(p) }))
+        .filter((p) => p.avail > 0);
+
+      if (params.newPayment) {
+        paymentPool.push({
+          id: params.newPayment.id,
+          avail: params.newPayment.amount,
         });
+      }
 
-        if (!atomicErr && atomicInvId) {
-          invoicedCount++;
-          continue;
-        }
+      for (const j of params.jobs) {
+        const fee = Number(j.net_amount || j.fee || 0);
+        const outlays = targetClient.expenses
+          .filter((e) => e.job_id === j.id)
+          .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const disc = params.overrideDiscounts?.[j.id] ?? (jobDiscounts[j.id] || 0);
+        const netJobAmount = Math.max(0, fee + outlays - disc);
 
-        // Fallback sequence if RPC not yet created
-        // 1. Save clearing (ignore if already cleared)
+        // 1. Save clearing: Note _other_addition is 0 so outlays are not double counted with _extra_amount
         await supabase.rpc("save_job_clearing", {
           _job_id: j.id,
-          _advance: num(d.advance),
-          _tds_tcs: num(d.tds_tcs),
-          _discount: num(d.discount),
-          _other_deduction: num(d.other_deduction),
-          _other_addition: num(d.other_addition),
-          _notes: d.notes.trim(),
+          _advance: netJobAmount,
+          _tds_tcs: 0,
+          _discount: disc,
+          _other_deduction: 0,
+          _other_addition: 0,
+          _notes: "Settled via Payment Clearing (100% Paid)",
         });
 
         // 2. Mark Cleared
         await supabase.rpc("mark_job_cleared", {
           _job_id: j.id,
-          _notes: d.notes.trim(),
+          _notes: "Settled via Payment Clearing (100% Paid)",
         });
 
         // 3. Square Off
         await supabase.rpc("sq_off_job_clearing", {
           _job_id: j.id,
-          _notes: d.notes.trim(),
+          _notes: "Settled via Payment Clearing (100% Paid)",
         });
 
-        // 4. Create Invoice automatically if requested
-        if (autoInvoice) {
-          const { data: fbInvId, error: invErr } = await supabase.rpc("create_invoice_for_job", {
-            _job_id: j.id,
-            _payment_id: matchingPay ? matchingPay.id : (null as unknown as string),
-            _invoice_date: today(),
-            _due_date: today(),
-            _tax_rate: num(d.tax_rate || 0),
-            _notes: d.notes.trim() || "",
-            _extra_desc: "",
-            _extra_amount: 0,
-          });
+        // 4. Create Invoice
+        const matchingPay = paymentPool.find((p) => p.avail > 0);
+        const { data: invId, error: invErr } = await supabase.rpc("create_invoice_for_job", {
+          _job_id: j.id,
+          _payment_id: matchingPay ? matchingPay.id : (null as unknown as string),
+          _invoice_date: today(),
+          _due_date: today(),
+          _tax_rate: 0,
+          _notes: "Generated from Payment Clearing Desk",
+          _extra_desc: outlays > 0 ? "Reimbursable Client Outlays" : "",
+          _extra_amount: outlays,
+        });
 
-          if (!invErr && fbInvId) {
-            invoicedCount++;
-            // Allocate advance from money jar if specified
-            let neededAdv = num(d.advance);
-            if (neededAdv > 0) {
-              for (const p of clientPayments) {
-                const av = avail(p);
-                if (av > 0 && neededAdv > 0) {
-                  const take = Math.min(neededAdv, av);
-                  await supabase.rpc("allocate_payment", {
-                    _payment_id: p.id,
-                    _allocations: [{ invoice_id: fbInvId, amount: take }],
-                  });
-                  neededAdv -= take;
-                }
-              }
+        if (invErr) throw invErr;
+
+        // 5. Allocate payments to cover invoice 100% (so outstanding = 0, status = 'paid')
+        if (invId && netJobAmount > 0) {
+          let needed = netJobAmount;
+          for (const p of paymentPool) {
+            if (p.avail > 0 && needed > 0) {
+              const use = Math.min(needed, p.avail);
+              await supabase.rpc("allocate_payment", {
+                _payment_id: p.id,
+                _allocations: [{ invoice_id: invId, amount: use }],
+              });
+              p.avail -= use;
+              needed -= use;
             }
           }
         }
+
+        count++;
       }
-
-      // Clean up drafts for processed jobs
-      setDrafts((prev) => {
-        const next = { ...prev };
-        for (const j of targetJobs) {
-          delete next[j.id];
-        }
-        return next;
-      });
-
-      // Refetch and invalidate all related queries
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["open-payments"] }),
-        qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
-        qc.invalidateQueries({ queryKey: ["client-invoices-all"] }),
-        qc.invalidateQueries({ queryKey: ["payments-list"] }),
-        qc.invalidateQueries({ queryKey: ["jobs-list"] }),
-      ]);
 
       toast.success(
-        invoicedCount > 0
-          ? `Squared off & settled ${invoicedCount} covered job(s) in full!`
-          : "Covered jobs squared off successfully!",
+        `Successfully settled ${count} job${count === 1 ? "" : "s"} for ${targetClient.clientName} (100% Paid, ₹0 Unpaid)!`,
       );
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Generate Invoice handler for a squared-off job
-  const handleCreateInvoice = async () => {
-    if (!invoiceModalJob) return;
-    setBusy(true);
-    try {
-      const matchingPay = clientPayments.find((p) => p.job_id === invoiceModalJob.id || avail(p) > 0);
-      const { data: invId, error } = await supabase.rpc("create_invoice_for_job", {
-        _job_id: invoiceModalJob.id,
-        _payment_id: matchingPay ? matchingPay.id : (null as unknown as string),
-        _invoice_date: today(),
-        _due_date: invDueDate || today(),
-        _tax_rate: num(invTaxRate),
-        _notes: invNotes.trim() || "",
-        _extra_desc: "",
-        _extra_amount: 0,
-      });
-
-      if (error) throw error;
-      if (invId && selectedFirmId) {
-        await supabase.from("invoices").update({ firm_id: selectedFirmId }).eq("id", invId);
-      }
-
-      // Invalidate queries
+      setPaymentModal(null);
       await Promise.all([
+        qc.invalidateQueries({ queryKey: ["clearing-v2-jobs"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-v2-payments"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-v2-invoices"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-v2-expenses"] }),
         qc.invalidateQueries({ queryKey: ["open-payments"] }),
         qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
-        qc.invalidateQueries({ queryKey: ["client-invoices-all"] }),
       ]);
-
-      toast.success("Invoice generated successfully!");
-      setInvoiceModalJob(null);
-      navigate({ to: "/invoices/$id", params: { id: invId } });
-    } catch (e) {
-      toast.error(errMsg(e));
+    } catch (err) {
+      toast.error(errMsg(err));
     } finally {
-      setBusy(false);
+      setIsProcessing(false);
     }
   };
+
+  // Clear all unbilled jobs: if advance covers 100%, settle immediately; otherwise open collection modal
+  const handleClearAllJobs = async (clientSummary?: typeof selectedClient) => {
+    const target = clientSummary || selectedClient;
+    if (!target) return;
+    if (target.unbilledJobs.length === 0) {
+      toast.info("No unbilled completed jobs found for this client.");
+      return;
+    }
+
+    let totalWork = 0;
+    for (const j of target.unbilledJobs) {
+      const fee = Number(j.net_amount || j.fee || 0);
+      const outlays = target.expenses
+        .filter((e) => e.job_id === j.id)
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      const disc = jobDiscounts[j.id] || 0;
+      totalWork += Math.max(0, fee + outlays - disc);
+    }
+
+    const advanceAvail = target.totalAdvanceBalance;
+    if (advanceAvail >= totalWork) {
+      // 100% covered by advance!
+      await executeFullClearance({ client: target, jobs: target.unbilledJobs, newPayment: null });
+    } else {
+      // Shortfall: open payment modal to collect shortfall or award discount
+      const shortfall = totalWork - advanceAvail;
+      setSelectedClientId(target.clientId);
+      setPaymentModal({
+        grossWork: totalWork,
+        advanceUsed: advanceAvail,
+        shortfall: shortfall,
+        discountAwarded: 0,
+        amount: shortfall,
+        mode: "upi",
+        paymentDate: today(),
+        reference: "",
+      });
+    }
+  };
+
+  // Clear single job: if advance covers 100%, settle immediately; otherwise prompt to collect or discount shortfall
+  const handleClearSingleJob = async (job: V2Job) => {
+    if (!selectedClient) return;
+    const fee = Number(job.net_amount || job.fee || 0);
+    const outlays = selectedClient.expenses
+      .filter((e) => e.job_id === job.id)
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const disc = jobDiscounts[job.id] || 0;
+    const netJobAmount = Math.max(0, fee + outlays - disc);
+
+    const advanceAvail = selectedClient.totalAdvanceBalance;
+    if (advanceAvail >= netJobAmount) {
+      // Advance covers it 100%!
+      await executeFullClearance({ client: selectedClient, jobs: [job], newPayment: null });
+    } else {
+      // Shortfall: prompt to collect difference or award discount
+      const shortfall = netJobAmount - advanceAvail;
+      setPaymentModal({
+        jobId: job.id,
+        jobCode: job.job_code,
+        grossWork: netJobAmount,
+        advanceUsed: advanceAvail,
+        shortfall: shortfall,
+        discountAwarded: 0,
+        amount: shortfall,
+        mode: "upi",
+        paymentDate: today(),
+        reference: "",
+      });
+    }
+  };
+
+  // Record payment for shortfall & instantly clear (100% Paid, ₹0 Unpaid)
+  const handleConfirmPaymentAndClear = async () => {
+    if (!selectedClient || !paymentModal) return;
+
+    setIsProcessing(true);
+    try {
+      const additionalDisc = paymentModal.discountAwarded || 0;
+      const newDiscounts = { ...jobDiscounts };
+
+      if (additionalDisc > 0) {
+        if (paymentModal.jobId) {
+          newDiscounts[paymentModal.jobId] =
+            (newDiscounts[paymentModal.jobId] || 0) + additionalDisc;
+        } else {
+          let rem = additionalDisc;
+          for (const j of selectedClient.unbilledJobs) {
+            if (rem <= 0) break;
+            const fee = Number(j.net_amount || j.fee || 0);
+            const cur = newDiscounts[j.id] || 0;
+            const canTake = Math.max(0, fee - cur);
+            const take = Math.min(rem, canTake);
+            newDiscounts[j.id] = cur + take;
+            rem -= take;
+          }
+        }
+        setJobDiscounts(newDiscounts);
+      }
+
+      // 1. If money is being collected, record payment receipt into payments table as general client balance
+      let newPayRecord: { id: string; amount: number } | null = null;
+      if (paymentModal.amount > 0) {
+        const { data: payRecord, error: payErr } = await supabase
+          .from("payments")
+          .insert({
+            client_id: selectedClient.clientId,
+            job_id: null,
+            amount: paymentModal.amount,
+            mode: paymentModal.mode,
+            payment_date: paymentModal.paymentDate,
+            reference: paymentModal.reference.trim() || null,
+            narration: `General client payment collected at Clearing Desk for ${selectedClient.clientName}`,
+          })
+          .select("id, amount")
+          .single();
+
+        if (payErr) throw payErr;
+        newPayRecord = { id: payRecord.id, amount: Number(payRecord.amount) };
+      }
+
+      // 2. Execute 100% full clearance
+      const targetJobs = paymentModal.jobId
+        ? selectedClient.unbilledJobs.filter((j) => j.id === paymentModal.jobId)
+        : selectedClient.unbilledJobs;
+
+      await executeFullClearance({
+        client: selectedClient,
+        jobs: targetJobs,
+        newPayment: newPayRecord,
+        overrideDiscounts: newDiscounts,
+      });
+    } catch (err) {
+      toast.error(errMsg(err));
+      setIsProcessing(false);
+    }
+  };
+
+  // Quick settlement of an existing open invoice using client advance money jar
+  const handleSettleOpenInvoice = async (inv: V2Invoice) => {
+    setIsProcessing(true);
+    try {
+      const { data, error } = await supabase.rpc("allocate_client_jar_to_invoice", {
+        _invoice_id: inv.id,
+      });
+      if (error) throw error;
+      toast.success(`Allocated ₹${data ?? 0} from client advance jar to invoice ${inv.invoice_no}!`);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["clearing-v2-invoices"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-v2-payments"] }),
+        qc.invalidateQueries({ queryKey: ["open-payments"] }),
+      ]);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Quick link / unlink of client reimbursable expense to a job
+  const handleLinkExpenseToJob = async (expenseId: string, jobId: string | null) => {
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update({ job_id: jobId })
+        .eq("id", expenseId);
+      if (error) throw error;
+      toast.success(jobId ? "Expense attached to job!" : "Expense detached from job.");
+      await qc.invalidateQueries({ queryKey: ["clearing-v2-expenses"] });
+    } catch (err) {
+      toast.error(errMsg(err));
+    }
+  };
+
+  // Modal dialog for collecting shortfall payment or awarding discount before 100% full clearance
+  const renderPaymentModal = () => (
+    <Dialog open={!!paymentModal} onOpenChange={(open) => !open && setPaymentModal(null)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            Clear Payment (100% Paid)
+          </DialogTitle>
+        </DialogHeader>
+
+        {paymentModal && (
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-muted/40 p-3 border text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Client:</span>
+                <span className="font-semibold text-foreground">
+                  {selectedClient?.clientName}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Settling:</span>
+                <span className="font-semibold text-foreground">
+                  {paymentModal.jobCode ? `Job ${paymentModal.jobCode}` : "All Unbilled Jobs"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Work Bill Total:</span>
+                <span className="font-mono font-medium text-foreground">
+                  {inr(paymentModal.grossWork)}
+                </span>
+              </div>
+              {paymentModal.advanceUsed > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Advance Jar Absorbed:</span>
+                  <span className="font-mono text-emerald-600 font-medium">
+                    - {inr(paymentModal.advanceUsed)}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between border-t pt-1 font-semibold">
+                <span>Remaining Shortfall:</span>
+                <span className="font-mono text-amber-600 font-semibold">
+                  {inr(paymentModal.shortfall)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Optional Discount Award Card */}
+              <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-primary">
+                    Award Discount (Waiver)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Max: {inr(paymentModal.shortfall)}
+                  </span>
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  max={paymentModal.shortfall}
+                  value={paymentModal.discountAwarded || ""}
+                  placeholder="₹0 discount"
+                  onChange={(e) => {
+                    const disc = Math.min(
+                      paymentModal.shortfall,
+                      Math.max(0, Number(e.target.value) || 0),
+                    );
+                    const remCollect = Math.max(0, paymentModal.shortfall - disc);
+                    setPaymentModal((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            discountAwarded: disc,
+                            amount: remCollect,
+                          }
+                        : null,
+                    );
+                  }}
+                  className="font-mono bg-background text-xs h-8"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Award a discount to waive off fees and clear the payment without leaving any unpaid balance.
+                </p>
+              </div>
+
+              {paymentModal.amount > 0 ? (
+                <>
+                  <Field label="Amount to Collect (₹) *">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={paymentModal.amount}
+                      onChange={(e) => {
+                        const val = Math.max(0, Number(e.target.value) || 0);
+                        setPaymentModal((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                amount: val,
+                              }
+                            : null,
+                        );
+                      }}
+                      className="font-mono font-semibold"
+                    />
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Payment Mode">
+                      <NativeSelect
+                        value={paymentModal.mode}
+                        onChange={(e) =>
+                          setPaymentModal((prev) =>
+                            prev ? { ...prev, mode: e.target.value } : null,
+                          )
+                        }
+                      >
+                        {MODES.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </Field>
+
+                    <Field label="Payment Date">
+                      <Input
+                        type="date"
+                        value={paymentModal.paymentDate}
+                        onChange={(e) =>
+                          setPaymentModal((prev) =>
+                            prev ? { ...prev, paymentDate: e.target.value } : null,
+                          )
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Reference / Transaction ID (Optional)">
+                    <Input
+                      placeholder="e.g. UPI Ref, IMPS No, Cheque #"
+                      value={paymentModal.reference}
+                      onChange={(e) =>
+                        setPaymentModal((prev) =>
+                          prev ? { ...prev, reference: e.target.value } : null,
+                        )
+                      }
+                    />
+                  </Field>
+                </>
+              ) : (
+                <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-800 dark:text-emerald-300">
+                  Full shortfall of {inr(paymentModal.shortfall)} waived off as discount. Ready to clear 100% paid with ₹0 collection needed!
+                </div>
+              )}
+            </div>
+
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-md p-2.5 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+              <span>
+                100% Full Clearance: Invoice will be marked <strong>Paid in Full</strong> with{" "}
+                <strong>₹0 outstanding</strong>. No partially paid or open bills will be created.
+              </span>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPaymentModal(null)} disabled={isProcessing}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+            onClick={handleConfirmPaymentAndClear}
+            disabled={isProcessing || !paymentModal}
+          >
+            {isProcessing
+              ? "Clearing 100%..."
+              : paymentModal?.amount > 0
+                ? `Collect ${inr(paymentModal.amount)} & Clear (100% Paid)`
+                : `Award ${inr(paymentModal?.discountAwarded || 0)} Discount & Clear (100% Paid)`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   if (loading) return null;
   if (!isFinance) return <NoAccess />;
 
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Payment Clearing"
-        subtitle="Select a client to clear completed jobs against received money, grant discounts & TDS, and square off before invoicing."
-      />
+  // -------------------------------------------------------------
+  // FULL SCREEN WORKSPACE VIEW FOR SELECTED CLIENT
+  // -------------------------------------------------------------
+  if (selectedClient) {
+    return (
+      <div className="space-y-4 animate-in fade-in-50 duration-200">
+        {/* Full Screen Top Navigation & Actions Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-4 rounded-xl border shadow-sm">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={closeFullScreen}
+              className="h-9 px-3 gap-1.5 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Clients</span>
+            </Button>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        {/* Left Column: Client List */}
-        <Card className="shadow-none">
-          <CardHeader className="pb-3 border-b space-y-2.5">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span>Clients / Companies</span>
-              <span className="text-xs font-mono font-normal text-muted-foreground">
-                {filteredClientGroups.length} of {clientGroups.length}
-              </span>
-            </CardTitle>
-
-            {/* Quick Search Input */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search 300+ clients by name or code…"
-                value={clientSearch}
-                onChange={(e) => setClientSearch(e.target.value)}
-                className="h-8 pl-8 text-xs bg-muted/40"
-              />
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight text-foreground">
+                  {selectedClient.clientName}
+                </h1>
+                <Badge variant="outline" className="font-mono text-xs font-semibold">
+                  {selectedClient.clientCode}
+                </Badge>
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {selectedClient.mobile ? `+91 ${selectedClient.mobile}` : "No phone"} •{" "}
+                <span className="capitalize">{selectedClient.clientType}</span>
+              </div>
             </div>
+          </div>
 
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setClientFilter("all")}
-                className={cn(
-                  "px-2 py-0.5 rounded-md font-medium transition-colors",
-                  clientFilter === "all"
-                    ? "bg-primary text-primary-foreground font-semibold"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setClientFilter("has_advance")}
-                className={cn(
-                  "px-2 py-0.5 rounded-md font-medium transition-colors",
-                  clientFilter === "has_advance"
-                    ? "bg-emerald-600 text-white font-semibold"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Has Advance
-              </button>
-              <button
-                type="button"
-                onClick={() => setClientFilter("has_unbilled")}
-                className={cn(
-                  "px-2 py-0.5 rounded-md font-medium transition-colors",
-                  clientFilter === "has_unbilled"
-                    ? "bg-blue-600 text-white font-semibold"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Has Unbilled
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2.5 pt-3 max-h-[calc(100vh-270px)] overflow-y-auto">
-            {filteredClientGroups.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No clients match your search or filter.
-              </p>
-            )}
-            {filteredClientGroups.map((g) => {
-              const isSelected = cid === g.id;
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => setCid(g.id)}
-                  className={cn(
-                    "w-full rounded-xl border p-3.5 text-left text-sm transition-all hover:bg-muted/50",
-                    isSelected
-                      ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20"
-                      : "border-border/60 bg-card",
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground truncate max-w-[180px]">
-                      {g.name}
-                    </span>
-                    <span className="text-[11px] font-mono text-muted-foreground">{g.code}</span>
-                  </div>
-
-                  <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-muted/40 p-2 rounded-lg border border-border/40">
-                      <div className="text-muted-foreground text-[10px] uppercase font-medium">
-                        Advance Balance
-                      </div>
-                      <div className="font-mono font-bold text-emerald-600 mt-0.5">
-                        {inr(g.totalAvailMoney)}
-                      </div>
-                    </div>
-                    <div className="bg-muted/40 p-2 rounded-lg border border-border/40">
-                      <div className="text-muted-foreground text-[10px] uppercase font-medium">
-                        Unbilled Work
-                      </div>
-                      <div className="font-mono font-bold text-primary mt-0.5">
-                        {inr(g.totalJobFee)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>{g.jobs.length} completed job(s)</span>
-                    <span>{g.payments.length} payment(s)</span>
-                  </div>
-                </button>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-        {/* Right Column: Selected Client's Clearing Station */}
-        <div className="space-y-4 lg:col-span-2">
-          {!currentClient ? (
-            <Card className="shadow-none p-12 text-center text-muted-foreground">
-              Select a client to clear completed jobs and square off payments.
-            </Card>
-          ) : (
-            <>
-              {/* Money Jar Summary Card */}
-              <Card className="shadow-none border-primary/20 bg-primary/[0.02]">
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-                    <div>
-                      <h3 className="font-semibold text-base text-foreground">
-                        {currentClient.name}
-                      </h3>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        Code: {currentClient.code} · {clientJobs.length} Completed Job(s)
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {totalClientReceived > 0 && pendingClientJobs.length > 0 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleAutoFill}
-                          disabled={busy}
-                          className="text-xs"
-                        >
-                          <Sparkles className="mr-1.5 h-3.5 w-3.5 text-amber-500" />
-                          Auto-Fill Advance
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        onClick={() => handleSaveAndSquareOff(undefined, true)}
-                        disabled={busy || coveredJobsCount === 0}
-                        className={cn(
-                          "text-xs font-medium",
-                          coveredJobsCount > 0
-                            ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-                            : "",
-                        )}
-                      >
-                        <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                        {coveredJobsCount === 0
-                          ? "No Jobs Covered (Awaiting Payment)"
-                          : `Square Off Covered Jobs (${coveredJobsCount}/${pendingClientJobs.length})`}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* 4 Summary Metric Cards */}
-                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <div className="rounded-lg bg-emerald-50/50 p-2.5 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-800/40">
-                      <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                        Total Advance Received
-                      </div>
-                      <div className="mt-1 font-mono text-lg font-bold text-emerald-600">
-                        {inr(totalClientReceived)}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {clientPayments.length} payment receipt(s)
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg bg-primary/5 p-2.5 border border-primary/20">
-                      <div className="text-[11px] font-medium text-primary">Completed Work Fee</div>
-                      <div className="mt-1 font-mono text-lg font-bold text-foreground">
-                        {inr(
-                          clientJobs.reduce(
-                            (s, j) => s + Number(j.net_amount || j.fee || 0),
-                            0,
-                          ),
-                        )}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">Across all done jobs</div>
-                    </div>
-
-                    <div className="rounded-lg bg-blue-50/50 p-2.5 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-800/40">
-                      <div className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                        Allocated to Work
-                      </div>
-                      <div className="mt-1 font-mono text-lg font-bold text-blue-600">
-                        {inr(totalAllocated)}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">From advance receipts</div>
-                    </div>
-
-                    <div className="rounded-lg bg-amber-50/50 p-2.5 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/40">
-                      <div className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                        Remaining Advance
-                      </div>
-                      <div
-                        className={cn(
-                          "mt-1 font-mono text-lg font-bold",
-                          clientRemainingAdvance < 0 ? "text-destructive" : "text-amber-600",
-                        )}
-                      >
-                        {inr(clientRemainingAdvance)}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {clientRemainingAdvance < 0 ? "Exceeds received" : "Remaining balance"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Firm Costs & Expenses Badge */}
-                  {clientExpenses.length > 0 && (
-                    <div className="mt-3 flex items-center justify-between bg-muted/40 px-3 py-2 rounded-lg border text-xs">
-                      <span className="text-muted-foreground flex items-center gap-1.5">
-                        <ReceiptIndianRupee className="h-3.5 w-3.5 text-primary" />
-                        Internal firm costs & expenses incurred for this client's jobs:
-                      </span>
-                      <span className="font-mono font-semibold text-foreground">
-                        {inr(clientExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0))} (
-                        {clientExpenses.length} item(s))
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Jobs List Section */}
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold flex items-center gap-1.5">
-                    <FileCheck className="h-4 w-4 text-primary" />
-                    Completed Jobs ({clientJobs.length})
-                  </h4>
-
-                  <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg text-xs">
-                    <button
-                      type="button"
-                      className={cn(
-                        "px-2.5 py-1 rounded-md font-medium transition-colors",
-                        jobTab === "pending"
-                          ? "bg-background text-foreground shadow-xs"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      onClick={() => setJobTab("pending")}
-                    >
-                      Pending Clearing ({pendingClientJobs.length})
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "px-2.5 py-1 rounded-md font-medium transition-colors",
-                        jobTab === "invoiced"
-                          ? "bg-background text-foreground shadow-xs"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      onClick={() => setJobTab("invoiced")}
-                    >
-                      Invoiced & Settled ({invoicedClientJobs.length})
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "px-2.5 py-1 rounded-md font-medium transition-colors",
-                        jobTab === "all"
-                          ? "bg-background text-foreground shadow-xs"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      onClick={() => setJobTab("all")}
-                    >
-                      All ({clientJobs.length})
-                    </button>
-                  </div>
-                </div>
-
-                {displayedJobs.length === 0 ? (
-                  jobTab === "pending" ? (
-                    <Card className="shadow-none p-8 text-center text-sm text-muted-foreground border-dashed">
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 mb-3">
-                        <CheckCircle2 className="h-6 w-6" />
-                      </div>
-                      <div className="font-semibold text-foreground">All Jobs Cleared & Invoiced! 🎉</div>
-                      <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
-                        There are no pending jobs awaiting clearing for this client. You can view raised invoices in the Billing History below.
-                      </p>
-                    </Card>
-                  ) : (
-                    <Card className="shadow-none p-8 text-center text-sm text-muted-foreground">
-                      No jobs found in this view.
-                    </Card>
-                  )
-                ) : (
-                  displayedJobs.map((j) => {
-                    const d = drafts[j.id] || {
-                      advance: "0",
-                      discount: "0",
-                      tds_tcs: "0",
-                      other_deduction: "0",
-                      other_addition: "0",
-                      tax_rate: "0",
-                      notes: "",
-                    };
-
-                    const fin = getJobFinancials(j, d);
-                    const {
-                      gross,
-                      disc,
-                      tds,
-                      oDed,
-                      oAdd,
-                      rate,
-                      netFinal,
-                      taxAmt,
-                      totalWithTax,
-                      adv,
-                      balDue,
-                      isFullyCovered,
-                    } = fin;
-
-                    const cStatus = j.job_clearing?.[0]?.status;
-                    const isInvoiced = j.financial_status === "invoiced" || j.financial_status === "closed";
-                    const isExpanded = expandedJobs[j.id] ?? false;
-
-                    const jobExps = clientExpenses.filter((e) => e.job_id === j.id);
-
-                    return (
-                      <Card
-                        key={j.id}
-                        className={cn(
-                          "shadow-none transition-all border",
-                          isInvoiced
-                            ? "bg-muted/10 opacity-75 border-border/40"
-                            : cStatus === "squared_off"
-                              ? "border-blue-300 bg-blue-50/20 dark:border-blue-900"
-                              : "border-border hover:border-primary/40",
-                        )}
-                      >
-                        <CardContent className="p-4 space-y-3">
-                          {/* Job Card Header */}
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs font-bold text-primary">
-                                  {j.job_code}
-                                </span>
-                                <h5 className="font-medium text-sm text-foreground">{j.title}</h5>
-                                {isInvoiced ? (
-                                  <StatusBadge status="invoiced" />
-                                ) : cStatus === "squared_off" ? (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200">
-                                    Squared Off
-                                  </span>
-                                ) : isFullyCovered ? (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                    ✓ Fully Covered
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200 border border-amber-300">
-                                    Shortfall: {inr(balDue)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                                <span>Done: {fmtDate(j.completed_at || j.created_at)}</span>
-                                {jobExps.length > 0 && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-amber-600 font-medium bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                                      Firm Cost / Out-of-pocket: {inr(jobExps.reduce((s, e) => s + Number(e.amount), 0))}
-                                    </span>
-                                    {!isInvoiced && (
-                                      <button
-                                        type="button"
-                                        className="text-[11px] text-primary hover:underline font-medium"
-                                        onClick={() => {
-                                          const expTotal = jobExps.reduce((s, e) => s + Number(e.amount), 0);
-                                          setDrafts((prev) => ({
-                                            ...prev,
-                                            [j.id]: {
-                                              ...d,
-                                              other_addition: String(expTotal),
-                                            },
-                                          }));
-                                          toast.success(`Added ${inr(expTotal)} firm expense to Extra Fee (+)`);
-                                        }}
-                                      >
-                                        + Bill to Client
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {isInvoiced ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-xs font-medium"
-                                  onClick={() => navigate({ to: "/clearing/$jobId", params: { jobId: j.id }, search: {} })}
-                                >
-                                  View Sheet
-                                </Button>
-                              ) : cStatus === "squared_off" ? (
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                                  onClick={() => setInvoiceModalJob(j)}
-                                >
-                                  <FileText className="mr-1.5 h-3.5 w-3.5" />
-                                  Create Invoice
-                                </Button>
-                              ) : isFullyCovered ? (
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                                  disabled={busy}
-                                  onClick={() => handleSaveAndSquareOff(j.id, true)}
-                                >
-                                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                                  Square Off & Settle (Paid)
-                                </Button>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 text-xs font-medium border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-                                    onClick={() => handleQuickDiscountToSettle(j.id, balDue)}
-                                    title={`Apply ₹${balDue} discount so this job is settled in full`}
-                                  >
-                                    + Discount {inr(balDue)} to Settle
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled
-                                    className="h-8 text-xs font-medium cursor-not-allowed opacity-75 bg-muted text-muted-foreground"
-                                    title="Cannot square off without advance money or discount"
-                                  >
-                                    Awaiting {inr(balDue)}
-                                  </Button>
-                                </div>
-                              )}
-
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs"
-                                onClick={() =>
-                                  setExpandedJobs((prev) => ({ ...prev, [j.id]: !isExpanded }))
-                                }
-                              >
-                                {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-
-                          {/* Clean 6-Column Financial Row */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 bg-muted/30 p-3 rounded-lg border border-border/50 text-xs">
-                            <div>
-                              <span className="text-muted-foreground block text-[10px] uppercase font-medium">
-                                Job Fee (Gross)
-                              </span>
-                              <span className="font-mono font-semibold text-sm">{inr(gross)}</span>
-                            </div>
-
-                            <div>
-                              <span className="text-muted-foreground block text-[10px] uppercase font-medium">
-                                Discount (–)
-                              </span>
-                              <Input
-                                type="number"
-                                min={0}
-                                disabled={isInvoiced}
-                                className="h-7 text-xs font-mono mt-0.5 bg-background"
-                                value={d.discount}
-                                onChange={(e) =>
-                                  setDrafts((prev) => ({
-                                    ...prev,
-                                    [j.id]: { ...d, discount: e.target.value },
-                                  }))
-                                }
-                                placeholder="0"
-                              />
-                            </div>
-
-                            <div>
-                              <span className="text-muted-foreground block text-[10px] uppercase font-medium">
-                                TDS / TCS (–)
-                              </span>
-                              <Input
-                                type="number"
-                                min={0}
-                                disabled={isInvoiced}
-                                className="h-7 text-xs font-mono mt-0.5 bg-background"
-                                value={d.tds_tcs}
-                                onChange={(e) =>
-                                  setDrafts((prev) => ({
-                                    ...prev,
-                                    [j.id]: { ...d, tds_tcs: e.target.value },
-                                  }))
-                                }
-                                placeholder="0"
-                              />
-                            </div>
-
-                            <div>
-                              <span className="text-muted-foreground block text-[10px] uppercase font-medium">
-                                GST Rate
-                              </span>
-                              <NativeSelect
-                                disabled={isInvoiced}
-                                className="h-7 text-xs mt-0.5 bg-background"
-                                value={d.tax_rate || "0"}
-                                onChange={(e) => {
-                                  const newRate = e.target.value;
-                                  const rateVal = num(newRate);
-                                  const newTax = Math.round((netFinal * rateVal) / 100 * 100) / 100;
-                                  const newTot = netFinal + newTax;
-                                  const currentAdv = num(d.advance);
-                                  const maxJar = clientRemainingAdvance + currentAdv;
-                                  const newAdv = Math.min(newTot, maxJar);
-
-                                  setDrafts((prev) => ({
-                                    ...prev,
-                                    [j.id]: {
-                                      ...d,
-                                      tax_rate: newRate,
-                                      advance: String(newAdv),
-                                    },
-                                  }));
-                                }}
-                              >
-                                <option value="0">0% (None)</option>
-                                <option value="18">18% GST</option>
-                                <option value="12">12% GST</option>
-                                <option value="5">5% GST</option>
-                              </NativeSelect>
-                            </div>
-
-                            <div>
-                              <span className="text-muted-foreground block text-[10px] uppercase font-medium">
-                                Total Invoice
-                              </span>
-                              <span className="font-mono font-bold text-sm text-primary block mt-1">
-                                {inr(totalWithTax)}
-                              </span>
-                              {taxAmt > 0 && (
-                                <span className="text-[10px] text-muted-foreground font-mono">
-                                  (+{inr(taxAmt)} GST)
-                                </span>
-                              )}
-                            </div>
-
-                            <div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-muted-foreground text-[10px] uppercase font-medium">
-                                  Allocate Advance
-                                </span>
-                                {!isInvoiced && (
-                                  <button
-                                    type="button"
-                                    className="text-[10px] text-primary underline font-medium"
-                                    onClick={() => {
-                                      const maxPossible = Math.min(
-                                        totalWithTax,
-                                        clientRemainingAdvance + num(d.advance),
-                                      );
-                                      setDrafts((prev) => ({
-                                        ...prev,
-                                        [j.id]: { ...d, advance: String(maxPossible) },
-                                      }));
-                                    }}
-                                  >
-                                    Max
-                                  </button>
-                                )}
-                              </div>
-                              <Input
-                                type="number"
-                                min={0}
-                                disabled={isInvoiced}
-                                className="h-7 text-xs font-mono mt-0.5 text-emerald-600 font-bold bg-background"
-                                value={d.advance}
-                                onChange={(e) =>
-                                  setDrafts((prev) => ({
-                                    ...prev,
-                                    [j.id]: { ...d, advance: e.target.value },
-                                  }))
-                                }
-                                placeholder="0"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Settlement Status Bar */}
-                          {!isInvoiced && (
-                            <div
-                              className={cn(
-                                "flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-md text-xs font-medium border",
-                                isFullyCovered
-                                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-800/60 dark:text-emerald-300"
-                                  : "bg-amber-50/70 border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-800/60 dark:text-amber-300",
-                              )}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground font-normal">Settlement:</span>
-                                {isFullyCovered ? (
-                                  <span className="font-semibold flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 inline" />
-                                    100% Settled ({inr(adv)} advance) · ₹0 Balance Due
-                                  </span>
-                                ) : (
-                                  <span className="font-semibold text-amber-900 dark:text-amber-200">
-                                    Shortfall: {inr(balDue)} unpaid
-                                  </span>
-                                )}
-                              </div>
-                              <div>
-                                {isFullyCovered ? (
-                                  <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                                    Ready to Square Off as Paid in Full
-                                  </span>
-                                ) : (
-                                  <span className="text-[11px] text-amber-700 dark:text-amber-300">
-                                    Needs advance payment or discount to square off
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Expanded Details */}
-                          {isExpanded && (
-                            <div className="pt-2 border-t space-y-2 text-xs">
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div>
-                                  <span className="text-muted-foreground font-medium block">
-                                    Other Deductions (–):
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    disabled={isInvoiced}
-                                    className="h-7 text-xs font-mono mt-1"
-                                    value={d.other_deduction}
-                                    onChange={(e) =>
-                                      setDrafts((prev) => ({
-                                        ...prev,
-                                        [j.id]: { ...d, other_deduction: e.target.value },
-                                      }))
-                                    }
-                                    placeholder="0"
-                                  />
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground font-medium block">
-                                    Extra Fee / Out-of-pocket (+):
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    disabled={isInvoiced}
-                                    className="h-7 text-xs font-mono mt-1"
-                                    value={d.other_addition}
-                                    onChange={(e) =>
-                                      setDrafts((prev) => ({
-                                        ...prev,
-                                        [j.id]: { ...d, other_addition: e.target.value },
-                                      }))
-                                    }
-                                    placeholder="0"
-                                  />
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground font-medium block">
-                                    Clearing Remarks:
-                                  </span>
-                                  <Input
-                                    disabled={isInvoiced}
-                                    className="h-7 text-xs mt-1"
-                                    value={d.notes}
-                                    onChange={(e) =>
-                                      setDrafts((prev) => ({
-                                        ...prev,
-                                        [j.id]: { ...d, notes: e.target.value },
-                                      }))
-                                    }
-                                    placeholder="Remarks or bank reference..."
-                                  />
-                                </div>
-                              </div>
-
-                              {jobExps.length > 0 && (
-                                <div className="mt-2 bg-muted/40 p-2.5 rounded border space-y-1">
-                                  <div className="font-semibold text-muted-foreground">
-                                    Expenses Incurred for {j.job_code}:
-                                  </div>
-                                  {jobExps.map((e) => (
-                                    <div
-                                      key={e.id}
-                                      className="flex justify-between items-center text-[11px]"
-                                    >
-                                      <span>
-                                        {e.description || e.category} · {fmtDate(e.expense_date)}
-                                      </span>
-                                      <span className="font-mono">{inr(e.amount)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Invoices Raised & Billing History (At the ending) */}
-              <div className="mt-6 border-t pt-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold flex items-center gap-1.5">
-                    <FileText className="h-4 w-4 text-primary" />
-                    Invoices Raised & Billing History ({clientInvoices.length})
-                  </h4>
-                  <span className="text-xs text-muted-foreground">
-                    Generated after clearing & squaring off
-                  </span>
-                </div>
-
-                {clientInvoices.length === 0 ? (
-                  <Card className="shadow-none p-6 text-center text-xs text-muted-foreground">
-                    No invoices generated for this client yet. Once a job is squared off, click "Create Invoice" above.
-                  </Card>
-                ) : (
-                  <Card className="shadow-none">
-                    <div className="divide-y text-xs">
-                      {clientInvoices.map((inv) => (
-                        <div
-                          key={inv.id}
-                          className="flex items-center justify-between p-3 hover:bg-muted/40 transition-colors"
-                        >
-                          <div>
-                            <div className="font-mono font-semibold text-primary">
-                              {inv.invoice_no}
-                            </div>
-                            <div className="text-muted-foreground text-[11px]">
-                              Date: {fmtDate(inv.invoice_date)} · Due: {fmtDate(inv.due_date)} ·{" "}
-                              {inv.description}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-4 text-right">
-                            <div>
-                              <div className="font-mono font-bold">{inr(inv.total)}</div>
-                              <div className="text-[11px] text-muted-foreground">
-                                Due: {inr(inv.outstanding)}
-                              </div>
-                            </div>
-                            <StatusBadge status={inv.status} />
-                            <div className="flex items-center gap-1.5">
-                              {inv.status !== "paid" && Number(inv.outstanding || 0) > 0 && totalClientReceived > 0 && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-300"
-                                  disabled={busy}
-                                  onClick={() => handleSettleInvoiceFromJar(inv.id)}
-                                >
-                                  Settle from Jar
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs"
-                                onClick={() =>
-                                  navigate({ to: "/invoices/$id", params: { id: inv.id } })
-                                }
-                              >
-                                View
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Invoice Generation Modal for Squared-Off Job */}
-      {invoiceModalJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <Card className="w-full max-w-md shadow-lg animate-in fade-in zoom-in-95">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                Generate Invoice for {invoiceModalJob.job_code}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-2">
-              <p className="text-xs text-muted-foreground">
-                Payment clearing is complete. Generate the official tax invoice for{" "}
-                <strong>{currentClient?.name}</strong>.
-              </p>
-
-              <div className="bg-muted/40 p-3 rounded-lg border text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Service / Title:</span>
-                  <span className="font-medium">{invoiceModalJob.title}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Net Taxable Fee:</span>
-                  <span className="font-mono font-bold">
-                    {inr(
-                      invoiceModalJob.job_clearing?.[0]?.final_amount ||
-                        invoiceModalJob.net_amount ||
-                        invoiceModalJob.fee,
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <Field label="Billing Entity / Company *">
-                <NativeSelect
-                  value={selectedFirmId}
-                  onChange={(e) => setSelectedFirmId(e.target.value)}
-                >
-                  {userFirms && userFirms.length > 0 ? (
-                    userFirms.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value={currentFirm?.id ?? ""}>{currentFirm?.name ?? "Default Firm"}</option>
-                  )}
-                </NativeSelect>
-              </Field>
-
-              <Field label="GST / Tax Rate (%)">
-                <NativeSelect value={invTaxRate} onChange={(e) => setInvTaxRate(e.target.value)}>
-                  <option value="0">0% (Exempt)</option>
-                  <option value="5">5% GST</option>
-                  <option value="12">12% GST</option>
-                  <option value="18">18% GST (Standard)</option>
-                  <option value="28">28% GST</option>
-                </NativeSelect>
-              </Field>
-
-              <Field label="Payment Due Date">
-                <Input
-                  type="date"
-                  value={invDueDate}
-                  onChange={(e) => setInvDueDate(e.target.value)}
-                />
-              </Field>
-
-              <Field label="Invoice Notes (Optional)">
-                <Input
-                  value={invNotes}
-                  onChange={(e) => setInvNotes(e.target.value)}
-                  placeholder="Terms or bank remarks..."
-                />
-              </Field>
-
-              <div className="flex justify-end gap-2 pt-2">
+          {/* Quick Action Button in Header */}
+          <div className="flex items-center gap-2">
+            {selectedClient.unbilledJobs.length > 0 &&
+              (clientUnbilledStats.isFullyCovered ? (
                 <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setInvoiceModalJob(null)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 cursor-pointer shadow-sm"
+                  onClick={() => handleClearAllJobs(selectedClient)}
+                  disabled={isProcessing}
                 >
-                  Cancel
+                  <CheckCircle2 className="h-4 w-4" />
+                  {isProcessing ? "Settling 100%…" : "1-Click Clear All (100% Paid)"}
                 </Button>
-                <Button size="sm" disabled={busy} onClick={handleCreateInvoice}>
-                  {busy ? "Generating…" : "Generate Invoice"}
+              ) : (
+                <Button
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-1.5 cursor-pointer shadow-sm"
+                  onClick={() => handleClearAllJobs(selectedClient)}
+                  disabled={isProcessing}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  {isProcessing
+                    ? "Processing…"
+                    : `Collect ${inr(clientUnbilledStats.shortfall)} & Clear All`}
                 </Button>
+              ))}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={closeFullScreen}
+              className="h-9 text-xs cursor-pointer"
+            >
+              <X className="h-4 w-4 mr-1" /> Close
+            </Button>
+          </div>
+        </div>
+
+        {/* Settlement Overview Banner (Clear, Simple, 100% Paid Guaranteed) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+          {/* Card 1: Completed Work */}
+          <Card className="border-border/70 shadow-xs">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Completed Work to Settle
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-foreground mt-1">
+                    {inr(clientUnbilledStats.totalWorkToBill)}
+                  </div>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <ReceiptIndianRupee className="h-5 w-5" />
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedClient.unbilledJobs.length} completed job
+                {selectedClient.unbilledJobs.length === 1 ? "" : "s"}
+                {selectedClient.expenses.length > 0
+                  ? ` · ${selectedClient.expenses.length} outlay${selectedClient.expenses.length === 1 ? "" : "s"} (${inr(selectedClient.reimbursableExpensesTotal)})`
+                  : ""}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Card 2: Advance in Hand */}
+          <Card className="border-border/70 shadow-xs">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Client Advance Jar
+                  </span>
+                  <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                    {inr(clientUnbilledStats.advanceInHand)}
+                  </div>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <Wallet className="h-5 w-5" />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedClient.payments.length} advance receipt
+                {selectedClient.payments.length === 1 ? "" : "s"} on deposit
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Card 3: Settlement Status */}
+          <Card
+            className={cn(
+              "shadow-xs transition-colors",
+              selectedClient.unbilledJobs.length === 0
+                ? "border-emerald-500/30 bg-emerald-500/5"
+                : clientUnbilledStats.isFullyCovered
+                  ? "border-emerald-500/40 bg-emerald-500/10"
+                  : "border-amber-500/40 bg-amber-500/10",
+            )}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Settlement Status
+                  </span>
+                  <div
+                    className={cn(
+                      "text-xl font-bold font-mono mt-1",
+                      selectedClient.unbilledJobs.length === 0 || clientUnbilledStats.isFullyCovered
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-amber-700 dark:text-amber-300",
+                    )}
+                  >
+                    {selectedClient.unbilledJobs.length === 0
+                      ? "✓ All Clear"
+                      : clientUnbilledStats.isFullyCovered
+                        ? "✓ 100% Covered"
+                        : `Shortfall: ${inr(clientUnbilledStats.shortfall)}`}
+                  </div>
+                </div>
+                <div
+                  className={cn(
+                    "h-10 w-10 rounded-full flex items-center justify-center",
+                    selectedClient.unbilledJobs.length === 0 || clientUnbilledStats.isFullyCovered
+                      ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                      : "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+                  )}
+                >
+                  {selectedClient.unbilledJobs.length === 0 || clientUnbilledStats.isFullyCovered ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5" />
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedClient.unbilledJobs.length === 0
+                  ? "All completed jobs are invoiced & cleared."
+                  : clientUnbilledStats.isFullyCovered
+                    ? "Advance fully covers all unbilled work. Ready to clear!"
+                    : `Advance covers ${inr(clientUnbilledStats.advanceInHand)}. Collect shortfall to settle 100%.`}
+              </p>
             </CardContent>
           </Card>
         </div>
-      )}
+
+        {/* Full Screen Workspace Tabs */}
+        <Card className="shadow-sm">
+          <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)}>
+            <div className="border-b px-4 pt-2">
+              <TabsList className="bg-transparent gap-2 h-11 p-0">
+                <TabsTrigger
+                  value="unbilled"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 text-xs font-semibold h-11"
+                >
+                  Unbilled Jobs & Reimbursables ({selectedClient.unbilledJobs.length} jobs ·{" "}
+                  {selectedClient.expenses.length} outlays)
+                </TabsTrigger>
+                <TabsTrigger
+                  value="future_tasks"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 text-xs font-semibold h-11"
+                >
+                  Future & Pending Tasks ({selectedClient.futureAndPendingTasks.length})
+                </TabsTrigger>
+                <TabsTrigger
+                  value="advances"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 text-xs font-semibold h-11"
+                >
+                  Client Advance Receipts ({selectedClient.payments.length})
+                </TabsTrigger>
+                <TabsTrigger
+                  value="invoices"
+                  className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none px-4 text-xs font-semibold h-11"
+                >
+                  Invoices & History ({selectedClient.openInvoices.length})
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* TAB 1: UNBILLED JOBS (CLEARING DESK) */}
+            <TabsContent value="unbilled" className="p-4 m-0 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-muted/30 p-3 rounded-lg border">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Completed Jobs Ready for Clearance
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Every clearance settles 100% of the bill with ₹0 unpaid balance. No open
+                    receivables are created.
+                  </p>
+                </div>
+                {selectedClient.unbilledJobs.length > 0 &&
+                  (clientUnbilledStats.isFullyCovered ? (
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs gap-1.5 cursor-pointer"
+                      onClick={() => handleClearAllJobs(selectedClient)}
+                      disabled={isProcessing}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      1-Click Clear All With Advance
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-xs gap-1.5 cursor-pointer"
+                      onClick={() => handleClearAllJobs(selectedClient)}
+                      disabled={isProcessing}
+                    >
+                      <CreditCard className="h-3.5 w-3.5" />
+                      Collect {inr(clientUnbilledStats.shortfall)} & Clear All
+                    </Button>
+                  ))}
+              </div>
+
+              {selectedClient.unbilledJobs.length === 0 ? (
+                <div className="text-center py-12 border border-dashed rounded-xl bg-muted/10">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                  <p className="text-sm font-semibold text-foreground">
+                    All completed jobs are cleared and invoiced!
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Check the &quot;Future &amp; Pending Tasks&quot; tab for upcoming work pipeline.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-muted-foreground font-semibold border-b uppercase text-[11px]">
+                      <tr>
+                        <th className="py-3 px-4">Job Info</th>
+                        <th className="py-3 px-3">Completed On</th>
+                        <th className="py-3 px-3">Agreed Fee</th>
+                        <th className="py-3 px-3">Outlays / Expenses</th>
+                        <th className="py-3 px-3">Discount (₹)</th>
+                        <th className="py-3 px-3">Total Net Bill</th>
+                        <th className="py-3 px-3">Coverage Status</th>
+                        <th className="py-3 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedClient.unbilledJobs.map((j) => {
+                        const fee = Number(j.net_amount || j.fee || 0);
+                        const linkedExpenses = selectedClient.expenses.filter(
+                          (e) => e.job_id === j.id,
+                        );
+                        const outlays = linkedExpenses.reduce(
+                          (sum, e) => sum + Number(e.amount || 0),
+                          0,
+                        );
+                        const disc = jobDiscounts[j.id] || 0;
+                        const totalJobBill = Math.max(0, fee + outlays - disc);
+                        const jobShortfall = Math.max(
+                          0,
+                          totalJobBill - selectedClient.totalAdvanceBalance,
+                        );
+                        const isJobCovered = selectedClient.totalAdvanceBalance >= totalJobBill;
+
+                        return (
+                          <tr key={j.id} className="hover:bg-muted/20 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <div className="font-semibold text-foreground text-xs">{j.title}</div>
+                              <div className="text-[11px] font-mono text-muted-foreground">
+                                Code: {j.job_code}
+                              </div>
+                            </td>
+
+                            <td className="py-3.5 px-3 text-muted-foreground">
+                              {j.completed_at ? fmtDate(j.completed_at) : "Recently"}
+                            </td>
+
+                            <td className="py-3.5 px-3 font-mono font-bold text-foreground">
+                              {inr(fee)}
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
+                                {inr(outlays)}
+                              </span>
+                              {linkedExpenses.length > 0 && (
+                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                  {linkedExpenses.length} expense
+                                  {linkedExpenses.length === 1 ? "" : "s"} linked
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="0"
+                                className="h-7 w-20 text-xs font-mono font-medium"
+                                value={jobDiscounts[j.id] || ""}
+                                onChange={(e) =>
+                                  setJobDiscounts((prev) => ({
+                                    ...prev,
+                                    [j.id]: Math.max(0, Number(e.target.value) || 0),
+                                  }))
+                                }
+                              />
+                            </td>
+
+                            <td className="py-3.5 px-3 font-mono font-bold text-foreground text-xs">
+                              {inr(totalJobBill)}
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              {isJobCovered ? (
+                                <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 gap-1 font-medium">
+                                  <Check className="h-3 w-3" /> Fully Covered
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 gap-1 font-medium">
+                                  <AlertCircle className="h-3 w-3" /> Shortfall: {inr(jobShortfall)}
+                                </Badge>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-4 text-right">
+                              {isJobCovered ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1 cursor-pointer font-medium"
+                                  onClick={() => handleClearSingleJob(j)}
+                                  disabled={isProcessing}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  Clear (100% Paid)
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs gap-1 cursor-pointer font-medium bg-primary hover:bg-primary/90 text-primary-foreground"
+                                  onClick={() => handleClearSingleJob(j)}
+                                  disabled={isProcessing}
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" />
+                                  Collect &amp; Clear
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* SECTION 2: CLIENT REIMBURSABLE EXPENSES & OUTLAYS ON SAME PAGE */}
+              <div className="border-t pt-5 space-y-3">
+                <div className="bg-muted/30 p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <ReceiptIndianRupee className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                      Client Reimbursable Expenses &amp; Outlays ({selectedClient.expenses.length})
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Direct government fees, challans, stamp duty, or expenses paid on behalf of
+                      this client. Attach them to an unbilled job above to roll into billing.
+                    </p>
+                  </div>
+                  <div className="text-sm font-semibold font-mono text-rose-600 dark:text-rose-400">
+                    Total Outlays: {inr(selectedClient.reimbursableExpensesTotal)}
+                  </div>
+                </div>
+
+                {selectedClient.expenses.length === 0 ? (
+                  <div className="text-center py-8 border border-dashed rounded-xl bg-muted/10">
+                    <CheckCircle2 className="h-9 w-9 text-muted-foreground mx-auto mb-2 opacity-50" />
+                    <p className="text-sm font-semibold text-foreground">
+                      No reimbursable expenses recorded for this client.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-muted/50 text-muted-foreground font-semibold border-b uppercase text-[11px]">
+                        <tr>
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-3">Category</th>
+                          <th className="py-3 px-3">Description</th>
+                          <th className="py-3 px-3">Job Link</th>
+                          <th className="py-3 px-3">Mode</th>
+                          <th className="py-3 px-3">Amount</th>
+                          <th className="py-3 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {selectedClient.expenses.map((exp) => {
+                          const linkedJob = jobsList.find((j) => j.id === exp.job_id);
+                          return (
+                            <tr key={exp.id} className="hover:bg-muted/20 transition-colors">
+                              <td className="py-3.5 px-4 font-mono text-muted-foreground">
+                                {fmtDate(exp.expense_date)}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                <Badge variant="outline" className="text-[10px] uppercase">
+                                  {exp.category}
+                                </Badge>
+                              </td>
+                              <td className="py-3.5 px-3">
+                                <div className="font-medium text-foreground">{exp.description}</div>
+                                {exp.paid_to && (
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Paid to: {exp.paid_to}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                {linkedJob ? (
+                                  <Badge variant="secondary" className="text-[10px] font-mono">
+                                    {linkedJob.job_code}
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] text-amber-600 bg-amber-500/10 border-amber-500/20"
+                                  >
+                                    Unassigned Outlay
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-3 text-muted-foreground uppercase text-[11px]">
+                                {exp.mode}
+                              </td>
+                              <td className="py-3.5 px-3 font-mono font-bold text-rose-600 dark:text-rose-400">
+                                {inr(exp.amount || 0)}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                {linkedJob ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs text-muted-foreground hover:text-destructive cursor-pointer"
+                                    onClick={() => handleLinkExpenseToJob(exp.id, null)}
+                                  >
+                                    Unlink
+                                  </Button>
+                                ) : selectedClient.unbilledJobs.length === 1 ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs gap-1 cursor-pointer hover:bg-primary/10 hover:text-primary hover:border-primary"
+                                    onClick={() =>
+                                      handleLinkExpenseToJob(
+                                        exp.id,
+                                        selectedClient.unbilledJobs[0].id,
+                                      )
+                                    }
+                                  >
+                                    <Plus className="h-3 w-3" /> Attach to{" "}
+                                    {selectedClient.unbilledJobs[0].job_code}
+                                  </Button>
+                                ) : selectedClient.unbilledJobs.length > 1 ? (
+                                  <NativeSelect
+                                    className="h-7 text-xs w-36"
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        handleLinkExpenseToJob(exp.id, e.target.value);
+                                      }
+                                    }}
+                                  >
+                                    <option value="" disabled>
+                                      Attach to Job…
+                                    </option>
+                                    {selectedClient.unbilledJobs.map((j) => (
+                                      <option key={j.id} value={j.id}>
+                                        {j.job_code}
+                                      </option>
+                                    ))}
+                                  </NativeSelect>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    No active jobs
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* TAB 2: FUTURE & PENDING TASKS */}
+            <TabsContent value="future_tasks" className="p-4 m-0 space-y-4">
+              <div className="bg-muted/30 p-3 rounded-lg border">
+                <h3 className="text-sm font-semibold text-foreground">
+                  Upcoming Compliance &amp; Operational Pipeline
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Review all upcoming deadlines, pending tasks, and retainers scheduled for this
+                  client.
+                </p>
+              </div>
+
+              {selectedClient.futureAndPendingTasks.length === 0 ? (
+                <div className="text-center py-12 border border-dashed rounded-xl bg-muted/10">
+                  <Clock className="h-10 w-10 text-muted-foreground mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-semibold text-foreground">
+                    No upcoming or pending tasks for this client.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-muted-foreground font-semibold border-b uppercase text-[11px]">
+                      <tr>
+                        <th className="py-3 px-4">Task / Job Title</th>
+                        <th className="py-3 px-3">Job Code</th>
+                        <th className="py-3 px-3">Due Date</th>
+                        <th className="py-3 px-3">Fee Amount</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-4 text-right">Open</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedClient.futureAndPendingTasks.map((t) => (
+                        <tr key={t.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <span className="font-semibold text-foreground">{t.title}</span>
+                          </td>
+                          <td className="py-3.5 px-3 font-mono text-muted-foreground">
+                            {t.job_code}
+                          </td>
+                          <td className="py-3.5 px-3 text-muted-foreground">
+                            {t.due_date ? fmtDate(t.due_date) : "No due date set"}
+                          </td>
+                          <td className="py-3.5 px-3 font-mono font-medium">{inr(t.fee)}</td>
+                          <td className="py-3.5 px-3">
+                            <StatusBadge status={t.status} />
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs gap-1 cursor-pointer"
+                              onClick={() => navigate({ to: `/jobs/${t.id}` })}
+                            >
+                              View <ArrowUpRight className="h-3 w-3" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* TAB 3: CLIENT ADVANCE RECEIPTS */}
+            <TabsContent value="advances" className="p-4 m-0 space-y-4">
+              <div className="bg-muted/30 p-3 rounded-lg border">
+                <h3 className="text-sm font-semibold text-foreground">
+                  Client Advance Receipts &amp; Money Jar
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  History of payments and unallocated balances currently credited to this client.
+                </p>
+              </div>
+
+              {selectedClient.payments.length === 0 ? (
+                <div className="text-center py-12 border border-dashed rounded-xl bg-muted/10">
+                  <Wallet className="h-10 w-10 text-muted-foreground mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-semibold text-foreground">
+                    No payment receipts on record for this client.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-muted-foreground font-semibold border-b uppercase text-[11px]">
+                      <tr>
+                        <th className="py-3 px-4">Receipt Code</th>
+                        <th className="py-3 px-3">Payment Date</th>
+                        <th className="py-3 px-3">Mode</th>
+                        <th className="py-3 px-3">Total Amount</th>
+                        <th className="py-3 px-3">Available Balance</th>
+                        <th className="py-3 px-4">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedClient.payments.map((p) => {
+                        const unalloc = avail(p);
+                        return (
+                          <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-semibold text-foreground">
+                              {p.payment_code}
+                            </td>
+                            <td className="py-3.5 px-3 text-muted-foreground">
+                              {fmtDate(p.payment_date)}
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                                {p.mode}
+                              </Badge>
+                            </td>
+                            <td className="py-3.5 px-3 font-mono font-bold text-foreground">
+                              {inr(p.amount)}
+                            </td>
+                            <td className="py-3.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              {inr(unalloc)}
+                            </td>
+                            <td className="py-3.5 px-4 text-muted-foreground">
+                              {p.narration || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* TAB 4: OPEN INVOICES */}
+            <TabsContent value="invoices" className="p-4 m-0 space-y-4">
+              <div className="bg-muted/30 p-3 rounded-lg border">
+                <h3 className="text-sm font-semibold text-foreground">
+                  Billed Invoices &amp; Receivables
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Invoices issued for completed work that are open or partially settled.
+                </p>
+              </div>
+
+              {selectedClient.openInvoices.length === 0 ? (
+                <div className="text-center py-12 border border-dashed rounded-xl bg-muted/10">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                  <p className="text-sm font-semibold text-foreground">
+                    No outstanding invoices for this client.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-muted-foreground font-semibold border-b uppercase text-[11px]">
+                      <tr>
+                        <th className="py-3 px-4">Invoice No</th>
+                        <th className="py-3 px-3">Date</th>
+                        <th className="py-3 px-3">Total Amount</th>
+                        <th className="py-3 px-3">Outstanding Due</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-4 text-right">View</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedClient.openInvoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-semibold text-foreground">
+                            {inv.invoice_no}
+                          </td>
+                          <td className="py-3.5 px-3 text-muted-foreground">
+                            {fmtDate(inv.invoice_date)}
+                          </td>
+                          <td className="py-3.5 px-3 font-mono font-medium">{inr(inv.total)}</td>
+                          <td className="py-3.5 px-3 font-mono font-bold text-rose-600 dark:text-rose-400">
+                            {inr(inv.outstanding ?? 0)}
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <Badge variant="outline" className="text-[10px] capitalize">
+                              {inv.status}
+                            </Badge>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {selectedClient.totalAdvanceBalance > 0 &&
+                                (inv.outstanding ?? 0) > 0 && (
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1 cursor-pointer font-medium"
+                                    onClick={() => handleSettleOpenInvoice(inv)}
+                                    disabled={isProcessing}
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    Settle with Advance
+                                  </Button>
+                                )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs gap-1 cursor-pointer"
+                                onClick={() => navigate({ to: `/invoices/${inv.id}` })}
+                              >
+                                Open <ArrowUpRight className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </Card>
+
+        {renderPaymentModal()}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // MAIN CLIENTS LIST VIEW
+  // -------------------------------------------------------------
+  return (
+    <div className="space-y-5">
+      {/* Page Header */}
+      <PageHeader
+        title="Payment Clearing"
+        subtitle="Comprehensive 360° clearing desk: monitor advances, future tasks, unbilled work, and settle accounts in 1 click."
+      />
+
+      {/* KPI Highlight Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <Card className="border-emerald-500/20 bg-emerald-50/30 dark:bg-emerald-950/10">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-emerald-800 dark:text-emerald-400">
+                  Total Client Advances
+                </p>
+                <p className="text-2xl font-bold font-mono tracking-tight text-emerald-700 dark:text-emerald-300 mt-1">
+                  {inr(overallKPIs.totalAdvance)}
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                <Wallet className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Available advance funds ready to absorb fees
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-blue-500/20 bg-blue-50/30 dark:bg-blue-950/10">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-blue-800 dark:text-blue-400">
+                  Unbilled Completed Work
+                </p>
+                <p className="text-2xl font-bold font-mono tracking-tight text-blue-700 dark:text-blue-300 mt-1">
+                  {inr(overallKPIs.totalUnbilledWork)}
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-blue-500/15 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <ReceiptIndianRupee className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Work completed awaiting invoice creation
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-amber-500/20 bg-amber-50/30 dark:bg-amber-950/10">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-amber-800 dark:text-amber-400">
+                  Pending &amp; Future Tasks
+                </p>
+                <p className="text-2xl font-bold font-mono tracking-tight text-amber-700 dark:text-amber-300 mt-1">
+                  {overallKPIs.totalFutureTasks}
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-amber-500/15 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                <Clock className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Active compliance pipeline across practice
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-purple-500/20 bg-purple-50/30 dark:bg-purple-950/10">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-purple-800 dark:text-purple-400">
+                  Unpaid Invoices
+                </p>
+                <p className="text-2xl font-bold font-mono tracking-tight text-purple-700 dark:text-purple-300 mt-1">
+                  {inr(overallKPIs.totalOpenInvoices)}
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                <FileText className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Open receivables billed to clients
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Control Bar: Filters & Search */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-lg border">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by client name, code, or phone number…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 bg-background text-sm"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-medium text-muted-foreground mr-1">Filter:</span>
+          <Button
+            size="sm"
+            variant={statusFilter === "all" ? "default" : "outline"}
+            onClick={() => setStatusFilter("all")}
+            className="h-8 text-xs cursor-pointer"
+          >
+            All Clients ({clientSummaries.length})
+          </Button>
+          <Button
+            size="sm"
+            variant={statusFilter === "has_unbilled" ? "default" : "outline"}
+            onClick={() => setStatusFilter("has_unbilled")}
+            className="h-8 text-xs cursor-pointer"
+          >
+            Unbilled Work
+          </Button>
+          <Button
+            size="sm"
+            variant={statusFilter === "has_expenses" ? "default" : "outline"}
+            onClick={() => setStatusFilter("has_expenses")}
+            className="h-8 text-xs cursor-pointer"
+          >
+            Reimbursables ({clientSummaries.filter((c) => c.reimbursableExpensesTotal > 0).length})
+          </Button>
+          <Button
+            size="sm"
+            variant={statusFilter === "has_balance" ? "default" : "outline"}
+            onClick={() => setStatusFilter("has_balance")}
+            className="h-8 text-xs cursor-pointer"
+          >
+            Has Advance
+          </Button>
+          <Button
+            size="sm"
+            variant={statusFilter === "has_pending_tasks" ? "default" : "outline"}
+            onClick={() => setStatusFilter("has_pending_tasks")}
+            className="h-8 text-xs cursor-pointer"
+          >
+            Future Tasks
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Client Summary Table */}
+      <Card>
+        <CardHeader className="py-3 px-4 border-b flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Layers className="h-4 w-4 text-primary" />
+            Clients Clearing Portfolio ({filteredSummaries.length})
+          </CardTitle>
+          <span className="text-xs text-muted-foreground">
+            Click any client to open full screen workspace
+          </span>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-muted/50 text-muted-foreground font-medium border-b uppercase tracking-wider text-[11px]">
+              <tr>
+                <th className="py-3 px-4">Client Details</th>
+                <th className="py-3 px-3">Available Advance</th>
+                <th className="py-3 px-3">Unbilled Work</th>
+                <th className="py-3 px-3">Future / Pending Tasks</th>
+                <th className="py-3 px-3">Open Invoices</th>
+                <th className="py-3 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredSummaries.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                    No clients match your search criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredSummaries.map((c) => {
+                  const hasAdvance = c.totalAdvanceBalance > 0;
+                  const hasUnbilled = c.unbilledJobs.length > 0;
+                  const canAbsorb =
+                    hasAdvance &&
+                    hasUnbilled &&
+                    c.totalAdvanceBalance >= c.unbilledFeeTotal + c.reimbursableExpensesTotal;
+
+                  return (
+                    <tr
+                      key={c.clientId}
+                      className="hover:bg-muted/30 transition-colors cursor-pointer group"
+                      onClick={() => openClientFullScreen(c.clientId)}
+                    >
+                      {/* Client Details */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-xs shrink-0">
+                            {c.clientName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5">
+                              {c.clientName}
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono py-0 px-1 font-normal"
+                              >
+                                {c.clientCode}
+                              </Badge>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {c.mobile ? `+91 ${c.mobile}` : "No phone"} • {c.clientType}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Advance Balance */}
+                      <td className="py-3.5 px-3">
+                        <div className="font-mono font-semibold text-sm text-emerald-700 dark:text-emerald-400">
+                          {inr(c.totalAdvanceBalance)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {c.payments.length} receipt{c.payments.length === 1 ? "" : "s"}
+                        </div>
+                      </td>
+
+                      {/* Unbilled Work */}
+                      <td className="py-3.5 px-3">
+                        {c.unbilledJobs.length > 0 || c.reimbursableExpensesTotal > 0 ? (
+                          <div>
+                            <span className="font-mono font-medium text-foreground">
+                              {inr(c.unbilledFeeTotal + c.reimbursableExpensesTotal)}
+                            </span>
+                            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                              {c.unbilledJobs.length > 0 && (
+                                <span className="text-[10px] text-amber-600 font-medium">
+                                  {c.unbilledJobs.length} job
+                                  {c.unbilledJobs.length === 1 ? "" : "s"}
+                                </span>
+                              )}
+                              {c.reimbursableExpensesTotal > 0 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1 py-0 text-rose-600 bg-rose-500/10 border-rose-500/20"
+                                >
+                                  +{inr(c.reimbursableExpensesTotal)} outlays
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">None</span>
+                        )}
+                      </td>
+
+                      {/* Future / Pending Tasks */}
+                      <td className="py-3.5 px-3">
+                        {c.futureAndPendingTasks.length > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <Badge
+                              variant="secondary"
+                              className="text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                            >
+                              <Clock className="h-3 w-3 mr-1" />
+                              {c.futureAndPendingTasks.length} pending
+                            </Badge>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-[11px]">All clear</span>
+                        )}
+                      </td>
+
+                      {/* Open Invoices */}
+                      <td className="py-3.5 px-3">
+                        {c.openInvoices.length > 0 ? (
+                          <div>
+                            <span className="font-mono font-medium text-rose-600 dark:text-rose-400">
+                              {inr(c.openInvoicesTotal)}
+                            </span>
+                            <span className="ml-1 text-[10px] text-muted-foreground">
+                              ({c.openInvoices.length} inv)
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-[11px]">Nil</span>
+                        )}
+                      </td>
+
+                      {/* Action */}
+                      <td className="py-3.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {canAbsorb && (
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1 cursor-pointer font-medium"
+                              onClick={() => handleClearAllJobs(c)}
+                              disabled={isProcessing}
+                            >
+                              <Check className="h-3 w-3" />
+                              1-Click Clear (100% Paid)
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs gap-1 cursor-pointer"
+                            onClick={() => openClientFullScreen(c.clientId)}
+                          >
+                            Open Desk
+                            <ChevronRight className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {renderPaymentModal()}
     </div>
   );
 }

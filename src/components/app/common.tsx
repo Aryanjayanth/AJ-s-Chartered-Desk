@@ -84,11 +84,13 @@ export function Field({
   children,
   className,
   hint,
+  error,
 }: {
   label: ReactNode;
   children: ReactNode;
   className?: string;
-  hint?: string;
+  hint?: ReactNode;
+  error?: string;
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
@@ -97,6 +99,7 @@ export function Field({
         {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
       </div>
       {children}
+      {error && <p className="text-xs text-destructive font-medium">{error}</p>}
     </div>
   );
 }
@@ -375,7 +378,9 @@ export function ChecklistFilter({
       </PopoverTrigger>
       <PopoverContent className="w-56 p-2" align="start">
         <div className="flex items-center justify-between border-b pb-1.5 mb-1.5 px-1">
-          <span className="text-xs font-semibold text-muted-foreground">{filterLabel} Checklist</span>
+          <span className="text-xs font-semibold text-muted-foreground">
+            {filterLabel} Checklist
+          </span>
           {selected.length > 0 && (
             <button
               type="button"
@@ -394,10 +399,7 @@ export function ChecklistFilter({
                 key={opt.value}
                 className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
               >
-                <Checkbox
-                  checked={isChecked}
-                  onCheckedChange={() => toggle(opt.value)}
-                />
+                <Checkbox checked={isChecked} onCheckedChange={() => toggle(opt.value)} />
                 <span className="flex-1 truncate">{opt.label}</span>
               </label>
             );

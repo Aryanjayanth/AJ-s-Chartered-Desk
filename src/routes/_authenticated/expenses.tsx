@@ -131,9 +131,6 @@ function ExpensesPage() {
     const amount = Number(draft.amount);
     if (!(amount > 0)) return toast.error("Amount must be greater than zero");
     if (draft.expense_date > today()) return toast.error("Date can't be in the future");
-    if (draft.client_id && !draft.job_id) {
-      return toast.error("Pick the job this was spent on, or leave the client blank");
-    }
 
     setBusy(true);
     const category = draft.category.trim() || "Other";
@@ -216,12 +213,9 @@ function ExpensesPage() {
           </Field>
 
           {draft.client_id && (
-            <Field label="Job *">
-              <NativeSelect
-                value={draft.job_id}
-                onChange={(e) => set("job_id")(e.target.value)}
-              >
-                <option value="">Select job…</option>
+            <Field label="Job (Optional)" hint="Leave unselected for general client expense">
+              <NativeSelect value={draft.job_id} onChange={(e) => set("job_id")(e.target.value)}>
+                <option value="">General client expense (Not tied to a specific job)</option>
                 {jobsForClient.map((j) => (
                   <option key={j.id} value={j.id}>
                     {j.job_code} · {j.title}
@@ -362,17 +356,17 @@ function ExpensesPage() {
         }
         exportFilename="expenses"
         exportTransform={(e) => ({
-          "Client": e.client_name ?? "Firm Overhead",
+          Client: e.client_name ?? "Firm Overhead",
           "Job Code": e.job_code ?? "",
-          "Date": fmtDate(e.expense_date),
-          "Kind": KIND_LABEL[e.kind],
-          "Category": e.category,
-          "Description": e.description,
+          Date: fmtDate(e.expense_date),
+          Kind: KIND_LABEL[e.kind],
+          Category: e.category,
+          Description: e.description,
           "Paid To": e.paid_to ?? "",
-          "Mode": MODES[e.mode] ?? e.mode,
-          "Reference": e.reference ?? "",
-          "Amount": canSeeAmounts("expenses") && e.amount != null ? e.amount : "—",
-          "Notes": e.notes ?? "",
+          Mode: MODES[e.mode] ?? e.mode,
+          Reference: e.reference ?? "",
+          Amount: canSeeAmounts("expenses") && e.amount != null ? e.amount : "—",
+          Notes: e.notes ?? "",
         })}
         columns={[
           {
@@ -384,7 +378,9 @@ function ExpensesPage() {
               <div className="flex flex-col min-w-[140px]">
                 <span className="font-semibold text-sm text-foreground leading-tight">
                   {e.client_name ?? (
-                    <span className="text-muted-foreground/80 font-normal italic">Firm Overhead</span>
+                    <span className="text-muted-foreground/80 font-normal italic">
+                      Firm Overhead
+                    </span>
                   )}
                 </span>
                 {e.job_code ? (
@@ -401,11 +397,14 @@ function ExpensesPage() {
             header: "Description",
             render: (e) => (
               <div className="flex flex-col max-w-[280px]">
-                <span className="text-sm font-medium text-foreground leading-snug">{e.description}</span>
+                <span className="text-sm font-medium text-foreground leading-snug">
+                  {e.description}
+                </span>
                 <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
                   {e.paid_to && (
                     <span>
-                      Paid to: <strong className="font-medium text-foreground/80">{e.paid_to}</strong>
+                      Paid to:{" "}
+                      <strong className="font-medium text-foreground/80">{e.paid_to}</strong>
                     </span>
                   )}
                   {e.reference && (
@@ -614,7 +613,9 @@ function ExpensesPage() {
                 {rows.slice(0, 5).map((e) => (
                   <div key={e.id} className="p-3 flex items-center justify-between">
                     <div>
-                      <div className="font-medium text-foreground">{e.description || e.category}</div>
+                      <div className="font-medium text-foreground">
+                        {e.description || e.category}
+                      </div>
                       <div className="text-[11px] text-muted-foreground">
                         {fmtDate(e.expense_date)} · {e.category} {e.paid_to && `· To: ${e.paid_to}`}
                       </div>

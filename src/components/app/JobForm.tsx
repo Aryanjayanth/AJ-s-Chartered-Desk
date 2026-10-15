@@ -1,24 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  Plus,
-  Trash2,
-  Briefcase,
-  Building,
-  Check,
-  ChevronsUpDown,
-  RefreshCw,
-} from "lucide-react";
+import { Plus, Trash2, Briefcase, Building, Check, ChevronsUpDown, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -33,7 +21,6 @@ import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, FREQS, inr, today } from "@/lib/format";
 import { firstDuePreview, monthLabel, normalizeServiceType } from "@/lib/service-options";
 import { fetchFirmServices } from "@/lib/standard-services";
-import { switchActiveFirm } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 
 export interface JobServiceRow {
@@ -85,7 +72,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
       if (!clientId) return [];
       const { data, error } = await supabase
         .from("client_services")
-        .select("id, service_id, agreed_fee, frequency, due_days, assigned_staff, auto_invoice, status")
+        .select(
+          "id, service_id, agreed_fee, frequency, due_days, assigned_staff, auto_invoice, status",
+        )
         .eq("client_id", clientId);
       if (error) throw error;
       return data ?? [];
@@ -135,9 +124,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
       const retainer = clientServices.find((cs) => cs.service_id === serviceId);
       const defaultFee =
-        retainer?.agreed_fee != null && retainer.agreed_fee > 0
-          ? String(retainer.agreed_fee)
-          : "";
+        retainer?.agreed_fee != null && retainer.agreed_fee > 0 ? String(retainer.agreed_fee) : "";
 
       const newItem: JobServiceRow = {
         service_id: svc.id,
@@ -251,18 +238,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
     try {
       const defaultStaff = selectedClient?.assigned_staff || null;
 
-      // Ensure active acting firm in DB matches targetFirmId to prevent RLS "firm isolation" violation
+      // Ensure active firm in DB matches to prevent RLS "firm isolation" violation
       const { data: dbFirmRes } = await supabase.rpc("current_firm_id");
-      const dbCurrentFirmId = (dbFirmRes as string | null) || null;
-      const targetFirmId = selectedFirmId || dbCurrentFirmId || currentFirm?.id || undefined;
-
-      if (targetFirmId && targetFirmId !== dbCurrentFirmId) {
-        try {
-          await switchActiveFirm({ data: { firmId: targetFirmId } });
-        } catch {
-          await supabase.rpc("set_acting_firm", { _firm_id: targetFirmId });
-        }
-      }
+      const activeFirmId = (dbFirmRes as string | null) || currentFirm?.id || null;
 
       // Prepare configs for each service item
       const itemConfigs: {
@@ -300,22 +278,24 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
           if (!csId) {
             // Insert active retainer schedule
+            const csPayload: any = {
+              client_id: clientId,
+              service_id: item.service_id,
+              agreed_fee: Number(item.fee) || 0,
+              frequency: freq,
+              start_date: periodStart || today(),
+              end_date: null,
+              due_days: dueDays,
+              assigned_staff: defaultStaff,
+              status: "active",
+              notes: generalNotes.trim() || null,
+              auto_invoice: autoInvoice,
+            };
+            if (activeFirmId) csPayload.firm_id = activeFirmId;
+
             const { data: newCs, error: csErr } = await supabase
               .from("client_services")
-              .insert({
-                firm_id: targetFirmId,
-                client_id: clientId,
-                service_id: item.service_id,
-                agreed_fee: Number(item.fee) || 0,
-                frequency: freq,
-                start_date: periodStart,
-                end_date: null,
-                due_days: dueDays,
-                assigned_staff: defaultStaff,
-                status: "active",
-                notes: generalNotes.trim() || null,
-                auto_invoice: autoInvoice,
-              })
+              .insert(csPayload)
               .select("id")
               .single();
 
@@ -365,8 +345,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           }
         }
 
-        const jobToInsert = {
-          firm_id: targetFirmId,
+        const safeCreatedAt =
+          taskDate && !isNaN(new Date(taskDate).getTime())
+            ? new Date(`${taskDate}T12:00:00Z`).toISOString()
+            : new Date().toISOString();
+
+        const jobToInsert: any = {
           client_id: clientId,
           service_id: item.service_id,
           client_service_id: csId,
@@ -380,10 +364,11 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           due_date: dueDate || null,
           period_start: periodStart || null,
           period_end: periodEnd || null,
-          created_at: taskDate ? new Date(`${taskDate}T12:00:00Z`).toISOString() : new Date().toISOString(),
+          created_at: safeCreatedAt,
           status: "pending",
           financial_status: "open",
         };
+        if (activeFirmId) jobToInsert.firm_id = activeFirmId;
 
         // Check for existing recurring job to avoid duplicate constraint error
         let currentJob: { id: string; fee: number; job_code: string } | null = null;
@@ -445,19 +430,24 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             try {
               const { data: authData } = await supabase.auth.getUser();
               const currentUserId = authData?.user?.id ?? null;
-              await supabase.from("payments").insert({
-                firm_id: targetFirmId,
+              const payPayload: any = {
                 client_id: clientId,
-                job_id: currentJob.id,
+                job_id: null,
                 amount: adv,
                 mode: "bank",
                 payment_date: taskDate || today(),
                 reference: null,
-                narration: `Advance received for job ${currentJob.job_code}`,
+                narration: `General advance deposit from ${selectedClient?.name || "client"}`,
                 created_by: currentUserId,
-              });
+              };
+              if (activeFirmId) payPayload.firm_id = activeFirmId;
+              await supabase.from("payments").insert(payPayload);
             } catch (payErr) {
-              console.warn("Could not record advance payment receipt for job", currentJob.id, payErr);
+              console.warn(
+                "Could not record advance payment receipt for job",
+                currentJob.id,
+                payErr,
+              );
             }
           }
         }
@@ -541,33 +531,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">
-                Billing Firm / Company *
+                Billing Firm / Company
               </label>
-              <NativeSelect
-                value={selectedFirmId}
-                onChange={async (e) => {
-                  const newFid = e.target.value;
-                  setSelectedFirmId(newFid);
-                  if (newFid) {
-                    try {
-                      await switchActiveFirm({ data: { firmId: newFid } });
-                    } catch {
-                      await supabase.rpc("set_acting_firm", { _firm_id: newFid });
-                    }
-                    qc.invalidateQueries();
-                  }
-                }}
-              >
-                {userFirms && userFirms.length > 0 ? (
-                  userFirms.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))
-                ) : (
-                  <option value={currentFirm?.id ?? ""}>{currentFirm?.name ?? "Default Firm"}</option>
-                )}
-              </NativeSelect>
+              <div className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-xs font-medium text-foreground">
+                <Building className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="truncate">{currentFirm?.name || "Active Practice Firm"}</span>
+              </div>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">
@@ -605,7 +574,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               </div>
               {selectedClient.client_type && (
                 <div>
-                  Type: <span className="font-medium text-foreground">{selectedClient.client_type}</span>
+                  Type:{" "}
+                  <span className="font-medium text-foreground">{selectedClient.client_type}</span>
                 </div>
               )}
               {selectedClient.mobile && (
@@ -621,9 +591,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         <section className="rounded-xl border bg-card p-5 space-y-5 shadow-xs">
           <div className="flex items-center justify-between border-b pb-3">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wide">
-                Services & Pricing
-              </h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wide">Services & Pricing</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Select all services and enter the corresponding fees.
               </p>
@@ -664,7 +632,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                   <CommandList className="max-h-72">
                     <CommandEmpty>
                       <div className="py-2 text-center space-y-2">
-                        <p>{servicesQuery.isLoading ? "Loading services…" : "No services found."}</p>
+                        <p>
+                          {servicesQuery.isLoading ? "Loading services…" : "No services found."}
+                        </p>
                         {!servicesQuery.isLoading && (
                           <Button
                             type="button"
@@ -719,9 +689,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                                 >
                                   {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
                                 </div>
-                                <span className={cn(isSelected && "font-medium")}>
-                                  {svc.name}
-                                </span>
+                                <span className={cn(isSelected && "font-medium")}>{svc.name}</span>
                               </div>
                             </CommandItem>
                           );
@@ -735,7 +703,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
             {/* Quick Pick Service Chips */}
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground mr-1">Quick pick:</span>
+              <span className="text-[11px] font-medium text-muted-foreground mr-1">
+                Quick pick:
+              </span>
               {availableServices.slice(0, 5).map((s) => {
                 const isSelected = selectedServiceIds.has(s.id);
                 return (
@@ -764,7 +734,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               <RefreshCw className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-foreground">Recurring Compliance Work:</span>{" "}
-                Creating this job will automatically register the client retainer schedule and generate recurring cycle jobs without duplicates.
+                Creating this job will automatically register the client retainer schedule and
+                generate recurring cycle jobs without duplicates.
               </div>
             </div>
           )}
@@ -773,7 +744,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           {items.length === 0 ? (
             <div className="rounded-xl border border-dashed p-8 text-center bg-muted/10">
               <Briefcase className="mx-auto h-8 w-8 text-muted-foreground/50" />
-              <h4 className="mt-2 text-sm font-semibold text-foreground">No services selected yet</h4>
+              <h4 className="mt-2 text-sm font-semibold text-foreground">
+                No services selected yet
+              </h4>
               <p className="mt-1 text-xs text-muted-foreground">
                 Select services from the dropdown or quick chips above to enter amounts.
               </p>
@@ -823,7 +796,11 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                                 return (
                                   <span className="inline-flex items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400">
                                     <RefreshCw className="h-2.5 w-2.5" />
-                                    Recurring ({svc?.frequency ? FREQS[svc.frequency] || svc.frequency : "Monthly"})
+                                    Recurring (
+                                    {svc?.frequency
+                                      ? FREQS[svc.frequency] || svc.frequency
+                                      : "Monthly"}
+                                    )
                                   </span>
                                 );
                               })()}
@@ -964,8 +941,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
               <div className="rounded-lg border bg-background p-3">
-                <div className="text-[11px] font-medium text-muted-foreground">Gross Fee Amount</div>
-                <div className="text-base font-bold font-mono text-foreground mt-0.5">{inr(subtotal)}</div>
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  Gross Fee Amount
+                </div>
+                <div className="text-base font-bold font-mono text-foreground mt-0.5">
+                  {inr(subtotal)}
+                </div>
               </div>
               <div className="rounded-lg border bg-background p-3">
                 <div className="text-[11px] font-medium text-muted-foreground">Total Advances</div>
@@ -974,14 +955,20 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 </div>
               </div>
               <div className="rounded-lg border bg-background p-3">
-                <div className="text-[11px] font-medium text-muted-foreground">Total Deductions / TDS</div>
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  Total Deductions / TDS
+                </div>
                 <div className="text-base font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
                   {totalDeductions > 0 ? `− ${inr(totalDeductions)}` : inr(0)}
                 </div>
               </div>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-                <div className="text-[11px] font-semibold text-primary">Total Outstanding Amount</div>
-                <div className="text-lg font-bold font-mono text-primary mt-0.5">{inr(totalOutstanding)}</div>
+                <div className="text-[11px] font-semibold text-primary">
+                  Total Outstanding Amount
+                </div>
+                <div className="text-lg font-bold font-mono text-primary mt-0.5">
+                  {inr(totalOutstanding)}
+                </div>
               </div>
             </div>
           </div>
@@ -1005,7 +992,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 onChange={(e) => setAutoInvoice(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
               />
-              <label htmlFor="batch_auto_invoice" className="text-xs font-medium cursor-pointer select-none">
+              <label
+                htmlFor="batch_auto_invoice"
+                className="text-xs font-medium cursor-pointer select-none"
+              >
                 Automatically raise invoice when these jobs are marked Completed
               </label>
             </div>
