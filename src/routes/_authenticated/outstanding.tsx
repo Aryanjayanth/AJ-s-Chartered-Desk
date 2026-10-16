@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { DataTable } from "@/components/app/DataTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClientSelect, NativeSelect, NoAccess, PageHeader, StatCard } from "@/components/app/common";
+import { ClientSelect, NativeSelect, NoAccess, PageHeader, StatCard, DateRangePicker } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles, useRoles } from "@/hooks/use-roles";
 import { useReceivables } from "@/hooks/use-receivables";
@@ -233,8 +233,13 @@ function OutstandingPage() {
                   </option>
                 ))}
               </NativeSelect>
-              <Input type="date" value={fl.from} onChange={s("from")} className="h-9 w-36" />
-              <Input type="date" value={fl.to} onChange={s("to")} className="h-9 w-36" />
+              <DateRangePicker
+                from={fl.from}
+                to={fl.to}
+                onFromChange={(val) => setFl((p) => ({ ...p, from: val }))}
+                onToChange={(val) => setFl((p) => ({ ...p, to: val }))}
+                label="Date"
+              />
             </>
           }
           columns={[

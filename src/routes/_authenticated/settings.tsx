@@ -81,6 +81,7 @@ function SettingsPage() {
         email: f.email?.trim(),
         bank_details: f.bank_details,
         default_tax_rate: Number(f.default_tax_rate || 0),
+        invoice_terms: f.invoice_terms,
       })
       .eq("id", q.data.id);
 
@@ -290,6 +291,15 @@ function SettingsPage() {
                   value={f.bank_details ?? ""}
                   onChange={set("bank_details")}
                   placeholder="Bank Name: HDFC Bank&#10;A/C No: 50200012345678&#10;IFSC: HDFC0001234&#10;UPI ID: firm@hdfcbank"
+                />
+              </Field>
+
+              <Field label="Invoice Notes / Default Terms (Printed on Invoices)" className="sm:col-span-2">
+                <Textarea
+                  rows={2}
+                  value={f.invoice_terms ?? ""}
+                  onChange={set("invoice_terms")}
+                  placeholder="e.g. Terms: Payment due within 15 days. Subject to local jurisdiction."
                 />
               </Field>
             </div>

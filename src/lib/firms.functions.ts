@@ -602,3 +602,479 @@ export const registerPracticeFirm = createServerFn({ method: "POST" })
     return { firmId: newFirm.id };
   });
 
+export const fetchFirmBillingDetails = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ firmId: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const [fRes, sRes] = await Promise.all([
+      supabaseAdmin.from("firms").select("*").eq("id", data.firmId).maybeSingle(),
+      supabaseAdmin.from("settings").select("*").eq("firm_id", data.firmId).maybeSingle(),
+    ]);
+    return {
+      firm: fRes.data,
+      settings: sRes.data,
+    };
+  });
+
+export const updateInvoiceBillingDetails = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      invoiceId: z.string().uuid(),
+      invoiceNo: z.string().optional(),
+      firmId: z.string().uuid().optional(),
+      customFirmName: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const updates: Record<string, any> = {};
+    if (data.firmId) updates.firm_id = data.firmId;
+    if (data.invoiceNo?.trim()) updates.invoice_no = data.invoiceNo.trim();
+    if (data.customFirmName?.trim()) {
+      // If customFirmName is provided, we can store it in notes or description if not empty
+      updates.description = data.customFirmName.trim();
+    }
+    const { error } = await supabaseAdmin
+      .from("invoices")
+      .update(updates)
+      .eq("id", data.invoiceId);
+    if (error) throw new Error(error.message);
+    return { success: true };
+  });
+
+export const deleteJobs = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      jobIds: z.array(z.string().uuid()).min(1),
+      force: z.boolean().default(false),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { jobIds, force } = data;
+
+    let deleted = 0;
+    const errors: string[] = [];
+
+    for (const jobId of jobIds) {
+      try {
+        if (force) {
+          // 1. Detach or delete linked expenses
+          await supabaseAdmin.from("expenses").update({ job_id: null }).eq("job_id", jobId);
+
+          // 2. Detach payments
+          await supabaseAdmin.from("payments").update({ job_id: null }).eq("job_id", jobId);
+
+          // 3. Delete job status history (which has on delete restrict)
+          await supabaseAdmin.from("job_status_history").delete().eq("job_id", jobId);
+
+          // 4. Delete job clearing (which has on delete restrict)
+          await supabaseAdmin.from("job_clearing").delete().eq("job_id", jobId);
+
+          // 5. Delete or detach invoice items
+          await supabaseAdmin.from("invoice_items").delete().eq("job_id", jobId);
+
+          // 6. Delete discounts
+          await supabaseAdmin.from("discounts").delete().eq("job_id", jobId);
+
+          // 7. Delete recurring payments linked
+          await supabaseAdmin.from("recurring_payments").delete().eq("job_id", jobId);
+
+          // 8. If any invoices have job_id, detach or update job_id: null
+          await supabaseAdmin.from("invoices").update({ job_id: null }).eq("job_id", jobId);
+        } else {
+          // Even in regular delete, job_status_history and draft job_clearing exist for every job
+          // because triggers stamp them on creation. Clean them up so deletable jobs can delete:
+          await supabaseAdmin.from("job_status_history").delete().eq("job_id", jobId);
+          await supabaseAdmin.from("job_clearing").delete().eq("job_id", jobId).eq("status", "draft");
+        }
+
+        const { error: delErr } = await supabaseAdmin.from("jobs").delete().eq("id", jobId);
+        if (delErr) {
+          throw new Error(delErr.message);
+        }
+        deleted++;
+      } catch (err: any) {
+        errors.push(err.message || String(err));
+      }
+    }
+
+    return {
+      deleted,
+      total: jobIds.length,
+      failed: jobIds.length - deleted,
+      errors,
+    };
+  });
+
+export const recordPaymentEntry = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      clientId: z.string().uuid(),
+      amount: z.number().positive("Amount must be greater than zero"),
+      paymentDate: z.string().min(1),
+      mode: z.string().default("bank"),
+      narration: z.string().optional(),
+      isAdvance: z.boolean().default(true),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: client } = await supabaseAdmin
+      .from("clients")
+      .select("firm_id")
+      .eq("id", data.clientId)
+      .single();
+    if (!client) throw new Error("Client not found");
+
+    // Map mode to PostgreSQL allowed check constraint: ('cash','bank','upi','cheque','card','other')
+    let dbMode = data.mode.toLowerCase();
+    if (dbMode === "bank_transfer" || dbMode === "bank transfer" || dbMode === "neft" || dbMode === "rtgs") {
+      dbMode = "bank";
+    } else if (!["cash", "bank", "upi", "cheque", "card", "other"].includes(dbMode)) {
+      dbMode = "other";
+    }
+
+    const { data: pay, error } = await supabaseAdmin
+      .from("payments")
+      .insert({
+        firm_id: client.firm_id,
+        client_id: data.clientId,
+        job_id: null,
+        amount: data.amount,
+        allocated_amount: 0,
+        payment_date: data.paymentDate,
+        mode: dbMode,
+        narration: data.narration?.trim() || (data.isAdvance ? "Advance Client Deposit" : null),
+        status: "unallocated",
+        created_by: context.user?.id || null,
+      })
+      .select("id, payment_code, amount")
+      .single();
+
+    if (error) throw new Error(error.message);
+    return { success: true, payment: pay };
+  });
+
+export const manualAllocatePayment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      paymentId: z.string().uuid(),
+      jobAllocations: z.array(
+        z.object({
+          jobId: z.string().uuid(),
+          amount: z.number().min(0),
+          discount: z.number().min(0).default(0),
+        }),
+      ),
+      expenseAllocations: z.array(
+        z.object({
+          expenseId: z.string().uuid(),
+          amount: z.number().min(0),
+          discount: z.number().min(0).default(0),
+        }),
+      ),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { paymentId, jobAllocations, expenseAllocations } = data;
+
+    // 1. Fetch payment
+    const { data: pay, error: payErr } = await supabaseAdmin
+      .from("payments")
+      .select("*")
+      .eq("id", paymentId)
+      .single();
+    if (payErr || !pay) throw new Error("Payment record not found");
+
+    const totalJobAmt = jobAllocations.reduce((sum, j) => sum + (j.amount || 0), 0);
+    const totalExpAmt = expenseAllocations.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalToAllocate = totalJobAmt + totalExpAmt;
+
+    const availableBefore = Math.max(0, Number(pay.amount || 0) - Number(pay.allocated_amount || 0));
+    if (totalToAllocate > availableBefore + 0.01) {
+      throw new Error(
+        `Total allocation (₹${totalToAllocate.toLocaleString("en-IN")}) exceeds available payment balance (₹${availableBefore.toLocaleString("en-IN")})`,
+      );
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const userId = context.user?.id || null;
+
+    // 2. Process Job Allocations
+    for (const jAlloc of jobAllocations) {
+      const jAmt = Number(jAlloc.amount || 0);
+      const jDisc = Number(jAlloc.discount || 0);
+      if (jAmt <= 0 && jDisc <= 0) continue;
+
+      const { data: job, error: jobErr } = await supabaseAdmin
+        .from("jobs")
+        .select("*, invoice_items(invoice_id, invoices(*))")
+        .eq("id", jAlloc.jobId)
+        .single();
+      if (jobErr || !job) continue;
+
+      const curFee = Number(job.fee || 0);
+      const curJobNet = Number(job.net_amount || curFee);
+      const maxJobDue = Math.max(0, curJobNet - jDisc);
+      if (jAmt > maxJobDue + 0.01) {
+        throw new Error(
+          `Allocation (₹${jAmt}) cannot exceed net due (₹${maxJobDue}) for job ${job.job_code}`,
+        );
+      }
+      if (jDisc > curJobNet + 0.01) {
+        throw new Error(
+          `Discount (₹${jDisc}) cannot exceed fee (₹${curJobNet}) for job ${job.job_code}`,
+        );
+      }
+
+      // Handle optional discount granted by user during clearing
+      let updatedNet = curJobNet;
+      if (jDisc > 0) {
+        const curDisc = Number(job.discount || 0);
+        const newDisc = curDisc + jDisc;
+        updatedNet = Math.max(0, curFee - newDisc);
+        await supabaseAdmin
+          .from("jobs")
+          .update({
+            discount: newDisc,
+            net_amount: updatedNet,
+          })
+          .eq("id", job.id);
+      }
+
+      // If job is fully discounted/waived and no payment allocation needed, close it immediately
+      if (updatedNet <= 0 && jAmt <= 0) {
+        await supabaseAdmin
+          .from("jobs")
+          .update({ financial_status: "closed", status: "completed" })
+          .eq("id", job.id);
+
+        await supabaseAdmin.from("job_clearing").upsert(
+          {
+            job_id: job.id,
+            firm_id: job.firm_id,
+            status: "cleared",
+            advance: 0,
+            discount: Number(job.discount || 0) + jDisc,
+            final_amount: 0,
+            notes: `Fully discounted/waived in ${pay.payment_code}`,
+          },
+          { onConflict: "job_id" },
+        );
+        continue;
+      }
+
+      // Check if job already has an invoice
+      const existingInv = (job.invoice_items as any[])?.[0]?.invoices;
+      let invoiceId: string | null = existingInv?.id ?? null;
+
+      if (!invoiceId) {
+        // Create an invoice for this job (Note: outstanding is GENERATED ALWAYS AS STORED in PostgreSQL, so omitted)
+        const jobNet = Math.max(0, updatedNet);
+        const invTotal = jobNet > 0 ? jobNet : jAmt;
+
+        const { data: newInv, error: invErr } = await supabaseAdmin
+          .from("invoices")
+          .insert({
+            firm_id: job.firm_id,
+            client_id: pay.client_id,
+            job_id: job.id,
+            payment_id: pay.id,
+            invoice_date: todayStr,
+            due_date: todayStr,
+            subtotal: invTotal,
+            total: invTotal,
+            amount_paid: 0,
+            status: "unpaid",
+            notes: "Manual clearing from Payment Desk",
+            created_by: userId,
+          })
+          .select("id")
+          .single();
+
+        if (invErr || !newInv) throw new Error(invErr?.message || "Failed to create invoice for job");
+        invoiceId = newInv.id;
+
+        await supabaseAdmin.from("invoice_items").insert({
+          firm_id: job.firm_id,
+          invoice_id: invoiceId,
+          job_id: job.id,
+          description: job.title || "Professional Services",
+          amount: invTotal,
+        });
+
+        await supabaseAdmin.from("jobs").update({ financial_status: "invoiced" }).eq("id", job.id);
+      }
+
+      // Allocate payment amount to invoice
+      if (invoiceId) {
+        const { error: allocErr } = await supabaseAdmin.from("payment_allocations").insert({
+          firm_id: job.firm_id,
+          payment_id: pay.id,
+          invoice_id: invoiceId,
+          amount: jAlloc.amount,
+          allocated_by: userId,
+        });
+
+        if (allocErr) throw new Error(allocErr.message);
+
+        // Fetch updated invoice row (trigger after_allocation computes amount_paid and status)
+        const { data: invRow } = await supabaseAdmin
+          .from("invoices")
+          .select("total, amount_paid, status")
+          .eq("id", invoiceId)
+          .single();
+
+        if (invRow) {
+          const isPaid = invRow.status === "paid" || Number(invRow.amount_paid || 0) >= Number(invRow.total || 0);
+
+          if (isPaid) {
+            await supabaseAdmin
+              .from("jobs")
+              .update({ financial_status: "closed", status: "completed" })
+              .eq("id", job.id);
+
+            await supabaseAdmin.from("job_clearing").upsert(
+              {
+                job_id: job.id,
+                firm_id: job.firm_id,
+                status: "cleared",
+                advance: jAlloc.amount,
+                discount: jAlloc.discount || 0,
+                final_amount: 0,
+                notes: "Manually allocated & cleared from Payment Desk",
+              },
+              { onConflict: "job_id" },
+            );
+          }
+        }
+      }
+    }
+
+    // 3. Process Expense Allocations
+    for (const eAlloc of expenseAllocations) {
+      const eAmt = Number(eAlloc.amount || 0);
+      const eDisc = Number(eAlloc.discount || 0);
+      if (eAmt <= 0 && eDisc <= 0) continue;
+
+      const { data: exp, error: expErr } = await supabaseAdmin
+        .from("expenses")
+        .select("*")
+        .eq("id", eAlloc.expenseId)
+        .single();
+      if (expErr || !exp) continue;
+
+      const expOriginalAmt = Number(exp.amount || 0);
+      const maxExpDue = Math.max(0, expOriginalAmt - eDisc);
+      if (eAmt > maxExpDue + 0.01) {
+        throw new Error(
+          `Allocation (₹${eAmt}) cannot exceed net outlay due (₹${maxExpDue}) for "${exp.description}"`,
+        );
+      }
+      if (eDisc > expOriginalAmt + 0.01) {
+        throw new Error(
+          `Discount (₹${eDisc}) cannot exceed outlay amount (₹${expOriginalAmt}) for "${exp.description}"`,
+        );
+      }
+
+      if (eAmt > 0) {
+        // Note: outstanding is GENERATED ALWAYS in postgres, so do not pass it
+        const { data: expInv, error: expInvErr } = await supabaseAdmin
+          .from("invoices")
+          .insert({
+            firm_id: exp.firm_id,
+            client_id: pay.client_id,
+            job_id: exp.job_id || null,
+            payment_id: pay.id,
+            invoice_date: todayStr,
+            due_date: todayStr,
+            subtotal: eAmt + eDisc,
+            discount: eDisc,
+            total: eAmt,
+            amount_paid: 0,
+            status: "unpaid",
+            notes: eDisc > 0
+              ? `Reimbursable Outlay Settlement: ${exp.description} (Discount/Waiver: ₹${eDisc})`
+              : `Reimbursable Outlay Settlement: ${exp.description}`,
+            created_by: userId,
+          })
+          .select("id")
+          .single();
+
+        if (expInv) {
+          await supabaseAdmin.from("invoice_items").insert({
+            firm_id: exp.firm_id,
+            invoice_id: expInv.id,
+            job_id: exp.job_id || null,
+            description: `Client Outlay: ${exp.description}`,
+            amount: eAmt + eDisc,
+          });
+
+          await supabaseAdmin.from("payment_allocations").insert({
+            firm_id: exp.firm_id,
+            payment_id: pay.id,
+            invoice_id: expInv.id,
+            amount: eAmt,
+            allocated_by: userId,
+          });
+        }
+      }
+
+      const clearNote = eDisc > 0
+        ? `Cleared in ${pay.payment_code} (Reimbursed: ₹${eAmt}, Waived/Discount: ₹${eDisc})`
+        : `Cleared in ${pay.payment_code}`;
+
+      await supabaseAdmin
+        .from("expenses")
+        .update({
+          notes: exp.notes
+            ? `${exp.notes} (${clearNote})`
+            : clearNote,
+        })
+        .eq("id", exp.id);
+    }
+
+    // 4. Update the payment record's allocated_amount and status (matches postgres check: 'unallocated', 'partially_allocated', 'allocated', 'reversed')
+    const newAllocTotal = Number(pay.allocated_amount || 0) + totalToAllocate;
+    const isFullyCovered = newAllocTotal >= Number(pay.amount || 0);
+    const updatedStatus = isFullyCovered
+      ? "allocated"
+      : newAllocTotal > 0
+        ? "partially_allocated"
+        : "unallocated";
+
+    await supabaseAdmin
+      .from("payments")
+      .update({
+        allocated_amount: newAllocTotal,
+        status: updatedStatus,
+      })
+      .eq("id", pay.id);
+
+    // Audit log
+    await supabaseAdmin.from("audit_logs").insert({
+      firm_id: pay.firm_id,
+      user_id: userId,
+      action: "payment_manually_allocated",
+      module: "payments",
+      record_id: pay.id,
+      reason: `Manually allocated ₹${totalToAllocate} across jobs & expenses`,
+    });
+
+    return {
+      success: true,
+      allocatedTotal: totalToAllocate,
+      remainingBalance: Math.max(0, Number(pay.amount || 0) - newAllocTotal),
+      status: updatedStatus,
+    };
+  });
+
+
+

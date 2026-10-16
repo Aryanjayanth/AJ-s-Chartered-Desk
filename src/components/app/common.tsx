@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { X, ChevronDown, Trash2 } from "lucide-react";
+import { X, ChevronDown, Trash2, Calendar } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -341,12 +341,14 @@ export function ChecklistFilter({
   selected,
   onChange,
   className,
+  emptyLabel,
 }: {
   label: string;
   options: { value: string; label: string }[];
   selected: string[];
   onChange: (values: string[]) => void;
   className?: string;
+  emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const toggle = (val: string) => {
@@ -357,9 +359,17 @@ export function ChecklistFilter({
     }
   };
 
+  const getEmptyText = () => {
+    if (emptyLabel) return emptyLabel;
+    const lower = filterLabel.toLowerCase();
+    if (lower.endsWith("status")) return `All ${lower}es`;
+    if (lower.endsWith("s")) return `All ${lower}`;
+    return `All ${lower}s`;
+  };
+
   const displayText =
     selected.length === 0
-      ? `All ${filterLabel.toLowerCase()}s`
+      ? getEmptyText()
       : selected.length === 1
         ? options.find((o) => o.value === selected[0])?.label || selected[0]
         : `${filterLabel} (${selected.length})`;
@@ -407,6 +417,63 @@ export function ChecklistFilter({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function DateRangePicker({
+  from,
+  to,
+  onFromChange,
+  onToChange,
+  label = "Date",
+  className,
+}: {
+  from: string;
+  to: string;
+  onFromChange: (val: string) => void;
+  onToChange: (val: string) => void;
+  label?: string;
+  className?: string;
+}) {
+  const hasValue = Boolean(from || to);
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1.5 shrink-0 rounded-md border border-input bg-background px-2.5 h-9 text-xs shadow-xs focus-within:ring-2 focus-within:ring-ring focus-within:border-primary",
+        className,
+      )}
+    >
+      <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      {label && <span className="text-muted-foreground whitespace-nowrap">{label}:</span>}
+      <input
+        type="date"
+        value={from}
+        onChange={(e) => onFromChange(e.target.value)}
+        className="bg-transparent text-xs outline-none focus:outline-none w-[110px] text-foreground cursor-pointer"
+        title="From date"
+      />
+      <span className="text-muted-foreground text-[10px]">—</span>
+      <input
+        type="date"
+        value={to}
+        onChange={(e) => onToChange(e.target.value)}
+        className="bg-transparent text-xs outline-none focus:outline-none w-[110px] text-foreground cursor-pointer"
+        title="To date"
+      />
+      {hasValue && (
+        <button
+          type="button"
+          onClick={() => {
+            onFromChange("");
+            onToChange("");
+          }}
+          className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-sm hover:bg-muted"
+          title="Clear date range"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   );
 }
 

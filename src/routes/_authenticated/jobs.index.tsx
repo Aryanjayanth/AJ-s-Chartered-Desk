@@ -6,6 +6,14 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,12 +21,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter, ConfirmDeleteDialog } from "@/components/app/common";
+import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter, DateRangePicker } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
 import { JobForm } from "@/components/app/JobForm";
 import { readList } from "@/lib/supabase-read";
+import { deleteJobs } from "@/lib/firms.functions";
 import { downloadCsv, errMsg, fmtDate, inr, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +48,10 @@ function JobsPage() {
   const { data: profiles } = useProfiles();
   const [open, setOpen] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [jobToDelete, setJobToDelete] = useState<{ id: string; job_code: string } | null>(null);
+  const [jobsToDelete, setJobsToDelete] = useState<any[] | null>(null);
+  const [forceDelete, setForceDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [clearSelectionCallback, setClearSelectionCallback] = useState<(() => void) | null>(null);
   const [fl, setFl] = useState({
     client: "",
     service: "",
@@ -48,17 +60,41 @@ function JobsPage() {
     to: "",
   });
 
-  const handleDeleteJob = async (jobId: string, jobCode: string) => {
-    const { error } = await supabase.from("jobs").delete().eq("id", jobId);
-    if (error) {
-      if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
-        toast.error(`Cannot delete job ${jobCode} because it has financial history (invoices or payments).`);
-      } else {
-        toast.error(errMsg(error));
+  const executeDeleteJobs = async (force: boolean) => {
+    if (!jobsToDelete || jobsToDelete.length === 0) return;
+    setIsDeleting(true);
+    const count = jobsToDelete.length;
+    const toastId = toast.loading(
+      force
+        ? `Force deleting ${count} job(s) and detaching linked records...`
+        : `Deleting ${count} job(s)...`,
+    );
+    try {
+      const ids = jobsToDelete.map((j) => j.id);
+      const res = await deleteJobs({ data: { jobIds: ids, force } });
+      toast.dismiss(toastId);
+      if (res.deleted > 0) {
+        toast.success(`Successfully deleted ${res.deleted} job(s)`);
       }
-    } else {
-      toast.success(`Job ${jobCode} deleted successfully`);
+      if (res.failed > 0) {
+        toast.error(
+          `${res.failed} job(s) could not be deleted due to linked records. Use "Force Delete" to override.`,
+        );
+        // keep modal open and enable force delete toggle so user can proceed with 1-click
+        setForceDelete(true);
+        setIsDeleting(false);
+        return;
+      }
+      clearSelectionCallback?.();
+      setJobsToDelete(null);
+      setForceDelete(false);
       qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] });
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(errMsg(err));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -214,6 +250,23 @@ function JobsPage() {
               </DropdownMenu>
             )}
 
+            {canDelete("jobs") && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
+                onClick={() => {
+                  setJobsToDelete(selectedJobs);
+                  setClearSelectionCallback(() => clearSelection);
+                  setForceDelete(false);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Selected ({selectedJobs.length})
+              </Button>
+            )}
+
             <Button
               type="button"
               variant="outline"
@@ -279,10 +332,10 @@ function JobsPage() {
               value={fl.client}
               onChange={(id) => setFl((p) => ({ ...p, client: id }))}
               placeholder="All clients"
-              className="w-44"
+              className="w-40"
               allowClear
             />
-            <NativeSelect value={fl.service} onChange={s("service")} className="w-40">
+            <NativeSelect value={fl.service} onChange={s("service")} className="w-36">
               <option value="">All services</option>
               {services.map(([id, n]) => (
                 <option key={id} value={id}>
@@ -298,9 +351,13 @@ function JobsPage() {
                 </option>
               ))}
             </NativeSelect>
-            <span className="text-xs text-muted-foreground">Date</span>
-            <Input type="date" value={fl.from} onChange={s("from")} className="h-9 w-36" />
-            <Input type="date" value={fl.to} onChange={s("to")} className="h-9 w-36" />
+            <DateRangePicker
+              from={fl.from}
+              to={fl.to}
+              onFromChange={(val) => setFl((p) => ({ ...p, from: val }))}
+              onToChange={(val) => setFl((p) => ({ ...p, to: val }))}
+              label="Date"
+            />
           </>
         }
         columns={[
@@ -380,47 +437,90 @@ function JobsPage() {
               );
             },
           },
-          ...(canDelete("jobs")
-            ? [
-                {
-                  key: "actions",
-                  header: "",
-                  className: "w-10 text-center",
-                  render: (j: any) => {
-                    const hasBilling = Boolean(j.invoice_id || j.financial_status === "closed");
-                    return (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        disabled={hasBilling}
-                        title={hasBilling ? "Cannot delete job with invoice/clearing" : "Delete job"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setJobToDelete({ id: j.id, job_code: j.job_code });
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    );
-                  },
-                },
-              ]
-            : []),
         ]}
       />
 
-      <ConfirmDeleteDialog
-        open={Boolean(jobToDelete)}
-        onOpenChange={(open) => !open && setJobToDelete(null)}
-        title={`Delete Job ${jobToDelete?.job_code ?? ""}?`}
-        description="Are you sure you want to delete this job? This action cannot be undone. Jobs with financial transactions cannot be deleted."
-        onConfirm={async () => {
-          if (jobToDelete) {
-            await handleDeleteJob(jobToDelete.id, jobToDelete.job_code);
+      <Dialog
+        open={Boolean(jobsToDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setJobsToDelete(null);
+            setForceDelete(false);
           }
         }}
-      />
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete {jobsToDelete?.length ?? 0} Selected Job(s)?
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Are you sure you want to delete the selected job(s)? This action cannot be undone.
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="max-h-36 overflow-y-auto rounded-md border bg-muted/40 p-2 space-y-1 text-xs">
+              {jobsToDelete?.map((j) => (
+                <div key={j.id} className="flex items-center justify-between py-0.5">
+                  <span className="font-mono font-medium">{j.job_code}</span>
+                  <span className="truncate max-w-[200px] text-muted-foreground">
+                    {j.title || j.client_name}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="force-delete-jobs-modal"
+                  checked={forceDelete}
+                  onCheckedChange={(checked) => setForceDelete(Boolean(checked))}
+                />
+                <div className="grid gap-1 leading-tight">
+                  <label
+                    htmlFor="force-delete-jobs-modal"
+                    className="text-xs font-semibold cursor-pointer text-amber-700 dark:text-amber-400"
+                  >
+                    Force delete if there are issues
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Automatically detaches linked records (audit history, draft clearings, expenses, billing references) so the deletion succeeds cleanly.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setJobsToDelete(null);
+                setForceDelete(false);
+              }}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => executeDeleteJobs(forceDelete)}
+              disabled={isDeleting}
+            >
+              {isDeleting
+                ? "Deleting..."
+                : forceDelete
+                  ? `Force Delete (${jobsToDelete?.length})`
+                  : `Delete (${jobsToDelete?.length})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

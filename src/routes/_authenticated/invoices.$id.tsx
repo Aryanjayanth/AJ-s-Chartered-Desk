@@ -2,13 +2,22 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Building2, Printer, XCircle } from "lucide-react";
+import { Building2, Pencil, Printer, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { NoAccess, ReasonDialog } from "@/components/app/common";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, NoAccess, ReasonDialog } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
 import { useUserFirms } from "@/hooks/use-firm";
+import { fetchFirmBillingDetails, updateInvoiceBillingDetails } from "@/lib/firms.functions";
 import { errMsg, fmtDate, inr, invoiceDisplayStatus, MODES } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/invoices/$id")({
@@ -71,6 +80,11 @@ function InvoiceView() {
   const qc = useQueryClient();
   const [cancel, setCancel] = useState(false);
   const [selectedFirmId, setSelectedFirmId] = useState<string>("");
+  const [editHeaderOpen, setEditHeaderOpen] = useState(false);
+  const [editFirmId, setEditFirmId] = useState("");
+  const [editCustomName, setEditCustomName] = useState("");
+  const [editInvoiceNo, setEditInvoiceNo] = useState("");
+  const [isSavingHeader, setIsSavingHeader] = useState(false);
 
   const q = useQuery({
     queryKey: ["invoice", id],
@@ -115,14 +129,17 @@ function InvoiceView() {
     enabled: Boolean(effectiveFirmId),
     queryFn: async () => {
       if (!effectiveFirmId) return null;
-      const [sRes, fRes] = await Promise.all([
-        supabase.from("settings").select("*").eq("firm_id", effectiveFirmId).maybeSingle(),
-        supabase.from("firms").select("*").eq("id", effectiveFirmId).maybeSingle(),
-      ]);
-      return {
-        settings: sRes.data,
-        firm: fRes.data,
-      };
+      try {
+        const res = await fetchFirmBillingDetails({ data: { firmId: effectiveFirmId } });
+        return res;
+      } catch (err) {
+        console.warn("fetchFirmBillingDetails fallback:", err);
+        const [sRes, fRes] = await Promise.all([
+          supabase.from("settings").select("*").eq("firm_id", effectiveFirmId).maybeSingle(),
+          supabase.from("firms").select("*").eq("id", effectiveFirmId).maybeSingle(),
+        ]);
+        return { settings: sRes.data, firm: fRes.data };
+      }
     },
   });
 
@@ -151,6 +168,34 @@ function InvoiceView() {
     qc.invalidateQueries();
   };
 
+  const handleSaveHeader = async () => {
+    setIsSavingHeader(true);
+    try {
+      await updateInvoiceBillingDetails({
+        data: {
+          invoiceId: id,
+          firmId: editFirmId || undefined,
+          invoiceNo: editInvoiceNo.trim() || undefined,
+          customFirmName: editCustomName.trim() || undefined,
+        },
+      });
+      if (editFirmId) {
+        setSelectedFirmId(editFirmId);
+      }
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["invoice", id] }),
+        qc.invalidateQueries({ queryKey: ["invoice-firm-details", editFirmId || effectiveFirmId] }),
+        qc.invalidateQueries({ queryKey: ["invoices"] }),
+      ]);
+      toast.success("Invoice billing details and pattern updated successfully");
+      setEditHeaderOpen(false);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setIsSavingHeader(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-4xl">
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -173,11 +218,18 @@ function InvoiceView() {
                   setSelectedFirmId(newFid);
                   if (newFid) {
                     try {
-                      await supabase.from("invoices").update({ firm_id: newFid }).eq("id", id);
-                      qc.invalidateQueries({ queryKey: ["invoice", id] });
-                      toast.success(`Invoice will print as "${userFirms.find((f) => f.id === newFid)?.name || "selected firm"}"`);
+                      await updateInvoiceBillingDetails({
+                        data: { invoiceId: id, firmId: newFid },
+                      });
+                      await Promise.all([
+                        qc.invalidateQueries({ queryKey: ["invoice", id] }),
+                        qc.invalidateQueries({ queryKey: ["invoice-firm-details", newFid] }),
+                      ]);
+                      toast.success(
+                        `Invoice billing entity set to "${userFirms.find((f) => f.id === newFid)?.name || "selected firm"}"`,
+                      );
                     } catch (err) {
-                      console.warn(err);
+                      toast.error(errMsg(err));
                     }
                   }
                 }}
@@ -191,6 +243,23 @@ function InvoiceView() {
               </select>
             </div>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs font-medium cursor-pointer"
+            onClick={() => {
+              setEditFirmId(effectiveFirmId || "");
+              setEditCustomName(
+                inv.description || activeSettings?.firm_name || activeFirm?.name || "",
+              );
+              setEditInvoiceNo(inv.invoice_no || "");
+              setEditHeaderOpen(true);
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit Bill Header &amp; No.
+          </Button>
 
           {inv.status !== "cancelled" && (
             <Button variant="outline" className="text-destructive" onClick={() => setCancel(true)}>
@@ -212,7 +281,9 @@ function InvoiceView() {
               <img src={activeFirm.logo_url} alt="" className="h-12 w-12 object-contain rounded-md" />
             )}
             <div>
-              <div className="text-lg font-bold">{activeSettings?.firm_name || activeFirm?.name}</div>
+              <div className="text-lg font-bold">
+                {inv.description || activeSettings?.firm_name || activeFirm?.name}
+              </div>
               <div className="whitespace-pre-line text-muted-foreground">{activeSettings?.address}</div>
               {activeSettings?.gstin && <div>GSTIN: {activeSettings.gstin}</div>}
               {activeSettings?.pan && <div>PAN: {activeSettings.pan}</div>}
@@ -358,6 +429,66 @@ function InvoiceView() {
         destructive
         onConfirm={doCancel}
       />
+
+      {/* Dialog for customizing billing firm name & invoice numbering pattern */}
+      <Dialog open={editHeaderOpen} onOpenChange={setEditHeaderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-4 w-4 text-primary" />
+              Edit Billing Firm &amp; Invoice Pattern
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {userFirms && userFirms.length > 0 && (
+              <Field label="Billing Practice Entity">
+                <select
+                  value={editFirmId}
+                  onChange={(e) => setEditFirmId(e.target.value)}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  {userFirms.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            <Field label="Firm / Company Name on Bill">
+              <Input
+                value={editCustomName}
+                onChange={(e) => setEditCustomName(e.target.value)}
+                placeholder="e.g. Sharma & Associates CA"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Overrides the printable firm heading on this bill.
+              </p>
+            </Field>
+
+            <Field label="Invoice Number / Pattern">
+              <Input
+                value={editInvoiceNo}
+                onChange={(e) => setEditInvoiceNo(e.target.value)}
+                className="font-mono"
+                placeholder="e.g. INV/2026/001"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Customize the invoice identifier (e.g. INV0001-1026, CA/26-27/001).
+              </p>
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditHeaderOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveHeader} disabled={isSavingHeader}>
+              {isSavingHeader ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

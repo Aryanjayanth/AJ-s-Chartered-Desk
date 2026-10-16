@@ -173,7 +173,7 @@ export function DataTable<T extends { id: string | number }>({
         (search || toolbar || exportFilename) && (
           <div className="flex flex-wrap items-center gap-2 border-b p-3">
             {search && (
-              <div className="relative w-full max-w-xs">
+              <div className="relative w-full sm:w-48 lg:w-56 shrink-0">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={q}
@@ -192,7 +192,7 @@ export function DataTable<T extends { id: string | number }>({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-9 ml-auto text-xs gap-1.5 font-medium"
+                className="h-9 ml-auto text-xs gap-1.5 font-medium shrink-0"
                 onClick={() => {
                   const dataToExport = exportTransform
                     ? filtered.map(exportTransform)

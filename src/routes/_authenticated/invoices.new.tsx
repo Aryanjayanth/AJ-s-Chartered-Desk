@@ -19,6 +19,7 @@ import {
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
+import { updateInvoiceBillingDetails } from "@/lib/firms.functions";
 import { errMsg, fmtDate, inr, today } from "@/lib/format";
 import { isWorkflow, type JobWorkflow } from "@/lib/job-workflow";
 
@@ -51,6 +52,7 @@ function NewInvoicePage() {
   const navigate = useNavigate();
 
   const [selectedFirmId, setSelectedFirmId] = useState(currentFirm?.id ?? "");
+  const [customInvoiceNo, setCustomInvoiceNo] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({
@@ -151,8 +153,20 @@ function NewInvoicePage() {
     });
     setBusy(false);
     if (error) return toast.error(errMsg(error));
-    if (data && selectedFirmId) {
-      await supabase.from("invoices").update({ firm_id: selectedFirmId }).eq("id", data);
+    if (data) {
+      if (selectedFirmId || customInvoiceNo?.trim()) {
+        try {
+          await updateInvoiceBillingDetails({
+            data: {
+              invoiceId: data,
+              firmId: selectedFirmId || undefined,
+              invoiceNo: customInvoiceNo.trim() || undefined,
+            },
+          });
+        } catch (updateErr) {
+          console.warn("Invoice billing details update warning:", updateErr);
+        }
+      }
     }
     toast.success("Invoice created successfully");
     qc.invalidateQueries();
@@ -267,7 +281,7 @@ function NewInvoicePage() {
 
           <Section title="Invoice details">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Billing Entity / Company *" className="sm:col-span-3">
+              <Field label="Billing Entity / Company *" className="sm:col-span-2">
                 <NativeSelect
                   value={selectedFirmId}
                   onChange={(e) => setSelectedFirmId(e.target.value)}
@@ -284,6 +298,17 @@ function NewInvoicePage() {
                     </option>
                   )}
                 </NativeSelect>
+              </Field>
+              <Field
+                label="Invoice Number / Pattern"
+                hint="Leave blank for auto sequence"
+              >
+                <Input
+                  value={customInvoiceNo}
+                  onChange={(e) => setCustomInvoiceNo(e.target.value)}
+                  placeholder="e.g. INV/2026/001"
+                  className="font-mono text-xs"
+                />
               </Field>
               <Field label="Invoice date">
                 <Input type="date" value={f.invoice_date} onChange={set("invoice_date")} />

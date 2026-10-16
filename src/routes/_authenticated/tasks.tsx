@@ -12,6 +12,7 @@ import {
   XCircle,
   Layers,
   ArrowRight,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,15 +20,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter } from "@/components/app/common";
+import {
+  ClientSelect,
+  NativeSelect,
+  PageHeader,
+  ChecklistFilter,
+  ConfirmDeleteDialog,
+  DateRangePicker,
+} from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { usePermissions } from "@/hooks/use-permissions";
+import { deleteJobs } from "@/lib/firms.functions";
 import { downloadCsv, errMsg, fmtDate, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +104,7 @@ interface SubtaskRow {
 function TasksPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canEdit } = usePermissions();
+  const { canEdit, canDelete } = usePermissions();
 
   const [activeTab, setActiveTab] = useState<"subtasks" | "jobs">("subtasks");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
@@ -100,6 +116,11 @@ function TasksPage() {
   const [searchFilter, setSearchFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const [subtasksToDelete, setSubtasksToDelete] = useState<SubtaskRow[] | null>(null);
+  const [jobsToDelete, setJobsToDelete] = useState<FlatJobItem[] | null>(null);
+  const [forceDeleteJobs, setForceDeleteJobs] = useState(false);
+  const [isDeletingJobs, setIsDeletingJobs] = useState(false);
 
   const jobsQuery = useQuery({
     queryKey: ["jobs", "tasks-view"],
@@ -370,6 +391,144 @@ function TasksPage() {
     }
   };
 
+  // Bulk subtask completion toggle
+  const handleBulkSubtasksDone = async (
+    subtasks: SubtaskRow[],
+    done: boolean,
+    clearSelection: () => void,
+  ) => {
+    if (!canEdit("jobs")) {
+      toast.error("Not authorised to edit tasks");
+      return;
+    }
+    const toastId = toast.loading(
+      `Marking ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}...`,
+    );
+    try {
+      const map = new Map<string, Set<number>>();
+      for (const st of subtasks) {
+        if (!map.has(st.jobId)) map.set(st.jobId, new Set());
+        map.get(st.jobId)!.add(st.itemIndex);
+      }
+
+      for (const [jobId, indices] of map.entries()) {
+        const job = jobsList.find((j) => j.id === jobId);
+        if (!job) continue;
+        const currentChecklist =
+          Array.isArray(job.checklist) && job.checklist.length > 0
+            ? [...job.checklist]
+            : [{ label: job.title || "Compliance work execution", done: false }];
+
+        const updatedChecklist = currentChecklist.map((it, idx) =>
+          indices.has(idx) ? { ...it, done } : it,
+        );
+        const allDone = updatedChecklist.length > 0 && updatedChecklist.every((it) => it.done);
+
+        const updates: Record<string, any> = { checklist: updatedChecklist };
+        if (allDone) {
+          updates.status = "completed";
+          updates.completed_at = new Date().toISOString();
+        } else if (!done && job.status === "completed") {
+          updates.status = "in_progress";
+          updates.completed_at = null;
+        }
+
+        await supabase.from("jobs").update(updates).eq("id", jobId);
+        if (allDone && job.status !== "completed") {
+          await supabase.rpc("update_job_status", {
+            _job_id: jobId,
+            _status: "completed",
+            _reason: "All checklist subtasks completed via bulk action",
+          });
+        }
+      }
+
+      toast.dismiss(toastId);
+      toast.success(
+        `Marked ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}`,
+      );
+      clearSelection();
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs"] }),
+        qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
+        qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-v2-jobs"] }),
+      ]);
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(errMsg(err));
+    }
+  };
+
+  // Bulk deletion of subtasks from job checklists
+  const handleBulkDeleteSubtasks = async () => {
+    if (!subtasksToDelete || subtasksToDelete.length === 0) return;
+    const toastId = toast.loading(`Deleting ${subtasksToDelete.length} checklist subtask(s)...`);
+    try {
+      const map = new Map<string, Set<number>>();
+      for (const st of subtasksToDelete) {
+        if (!map.has(st.jobId)) map.set(st.jobId, new Set());
+        map.get(st.jobId)!.add(st.itemIndex);
+      }
+
+      for (const [jobId, indices] of map.entries()) {
+        const job = jobsList.find((j) => j.id === jobId);
+        if (!job) continue;
+        const currentChecklist = Array.isArray(job.checklist) ? job.checklist : [];
+        const newChecklist = currentChecklist.filter((_, idx) => !indices.has(idx));
+        await supabase.from("jobs").update({ checklist: newChecklist }).eq("id", jobId);
+      }
+
+      toast.dismiss(toastId);
+      toast.success(`Deleted ${subtasksToDelete.length} checklist subtask(s)`);
+      setSubtasksToDelete(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs"] }),
+        qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
+      ]);
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(errMsg(err));
+    }
+  };
+
+  // Bulk deletion of jobs
+  const handleBulkDeleteJobs = async (force: boolean) => {
+    if (!jobsToDelete || jobsToDelete.length === 0) return;
+    setIsDeletingJobs(true);
+    const count = jobsToDelete.length;
+    const toastId = toast.loading(
+      force
+        ? `Force deleting ${count} job(s) and detaching linked records...`
+        : `Deleting ${count} job(s)...`,
+    );
+    try {
+      const ids = jobsToDelete.map((j) => j.id);
+      const res = await deleteJobs({ data: { jobIds: ids, force } });
+      toast.dismiss(toastId);
+      if (res.deleted > 0) {
+        toast.success(`Successfully deleted ${res.deleted} job(s)`);
+      }
+      if (res.failed > 0) {
+        toast.error(
+          `${res.failed} job(s) could not be deleted due to linked records. Use "Force Delete" to override.`,
+        );
+        setForceDeleteJobs(true);
+        setIsDeletingJobs(false);
+        return;
+      }
+      setJobsToDelete(null);
+      setForceDeleteJobs(false);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] });
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(errMsg(err));
+    } finally {
+      setIsDeletingJobs(false);
+    }
+  };
+
   // Metrics
   const totalSubtasks = subtasksList.length;
   const pendingSubtasks = subtasksList.filter((s) => !s.done).length;
@@ -505,6 +664,69 @@ function TasksPage() {
         <DataTable
           rows={filteredSubtasks}
           loading={jobsQuery.isLoading}
+          selectable
+          bulkActions={(selectedSubtasks, clearSelection) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {canEdit("jobs") && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    onClick={() => handleBulkSubtasksDone(selectedSubtasks, true, clearSelection)}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Mark Done ({selectedSubtasks.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs font-medium gap-1.5 cursor-pointer"
+                    onClick={() => handleBulkSubtasksDone(selectedSubtasks, false, clearSelection)}
+                  >
+                    <Clock className="h-3.5 w-3.5 text-amber-600" />
+                    Mark Pending
+                  </Button>
+                </>
+              )}
+
+              {canDelete("jobs") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
+                  onClick={() => setSubtasksToDelete(selectedSubtasks)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Selected ({selectedSubtasks.length})
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5 font-medium bg-background cursor-pointer"
+                onClick={() => {
+                  const dataToExport = selectedSubtasks.map((s) => ({
+                    "Subtask Item": s.label,
+                    Status: s.done ? "Completed" : "Pending",
+                    "Job Code": s.jobCode,
+                    "Job Title": s.jobTitle,
+                    Client: s.clientName,
+                    Service: s.serviceName,
+                    "Assigned Staff": s.assignedStaff,
+                    "Due Date": fmtDate(s.dueDate),
+                  }));
+                  const stamp = new Date().toISOString().slice(0, 10);
+                  downloadCsv(`subtasks_selected_${stamp}.csv`, dataToExport);
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export Selected ({selectedSubtasks.length})
+              </Button>
+            </div>
+          )}
           empty="No checklist subtasks found for the selected filters."
           search={(s) => `${s.label} ${s.jobCode} ${s.jobTitle} ${s.clientName} ${s.serviceName}`}
           exportFilename="checklist_subtasks"
@@ -526,21 +748,21 @@ function TasksPage() {
                 options={statusOptions}
                 selected={selectedStatuses}
                 onChange={setSelectedStatuses}
-                className="w-40"
+                className="w-36"
               />
 
               <ClientSelect
                 value={clientFilter}
                 onChange={setClientFilter}
                 placeholder="All clients"
-                className="w-44 text-xs h-9"
+                className="w-40 text-xs h-9"
                 allowClear
               />
 
               <NativeSelect
                 value={serviceFilter}
                 onChange={(e) => setServiceFilter(e.target.value)}
-                className="w-40 text-xs h-9"
+                className="w-36 text-xs h-9"
               >
                 <option value="">All services</option>
                 {uniqueServices.map(([id, name]) => (
@@ -550,37 +772,46 @@ function TasksPage() {
                 ))}
               </NativeSelect>
 
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Due Date</span>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 w-32 text-xs"
-              />
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-9 w-32 text-xs"
+              <DateRangePicker
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={setDateFrom}
+                onToChange={setDateTo}
+                label="Due"
               />
             </>
           }
           columns={[
             {
-              key: "done",
-              header: "",
-              className: "w-10 text-center",
+              key: "status",
+              header: "Status",
+              className: "w-28",
+              sort: (st) => (st.done ? "Completed" : "Pending"),
               render: (st) => (
-                <div
-                  className="flex items-center justify-center p-1"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Checkbox
-                    checked={st.done}
-                    onCheckedChange={() => handleToggleSubtask(st)}
-                    className="h-4 w-4"
-                    title={st.done ? "Mark pending" : "Mark completed"}
-                  />
+                <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubtask(st)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors cursor-pointer",
+                      st.done
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20",
+                    )}
+                    title={st.done ? "Click to reopen task" : "Click to mark done"}
+                  >
+                    {st.done ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-600" />
+                        <span>Done</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="h-3 w-3 text-amber-600" />
+                        <span>Pending</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               ),
             },
@@ -722,11 +953,23 @@ function TasksPage() {
                 </DropdownMenu>
               )}
 
+              {canDelete("jobs") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
+                  onClick={() => setJobsToDelete(selected)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Selected ({selected.length})
+                </Button>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs gap-1.5 font-medium bg-background"
+                className="h-8 text-xs gap-1.5 font-medium bg-background cursor-pointer"
                 onClick={() => {
                   const dataToExport = selected.map((j) => ({
                     "Job Code": j.job_code,
@@ -763,21 +1006,21 @@ function TasksPage() {
                 options={statusOptions}
                 selected={selectedStatuses}
                 onChange={setSelectedStatuses}
-                className="w-40"
+                className="w-36"
               />
 
               <ClientSelect
                 value={clientFilter}
                 onChange={setClientFilter}
                 placeholder="All clients"
-                className="w-44 text-xs h-9"
+                className="w-40 text-xs h-9"
                 allowClear
               />
 
               <NativeSelect
                 value={serviceFilter}
                 onChange={(e) => setServiceFilter(e.target.value)}
-                className="w-40 text-xs h-9"
+                className="w-36 text-xs h-9"
               >
                 <option value="">All services</option>
                 {uniqueServices.map(([id, name]) => (
@@ -787,18 +1030,12 @@ function TasksPage() {
                 ))}
               </NativeSelect>
 
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Date</span>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 w-32 text-xs"
-              />
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-9 w-32 text-xs"
+              <DateRangePicker
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={setDateFrom}
+                onToChange={setDateTo}
+                label="Date"
               />
             </>
           }
@@ -882,6 +1119,96 @@ function TasksPage() {
           ]}
         />
       )}
+
+      <ConfirmDeleteDialog
+        open={Boolean(subtasksToDelete)}
+        onOpenChange={(open) => !open && setSubtasksToDelete(null)}
+        title={`Delete ${subtasksToDelete?.length ?? 0} Selected Checklist Subtask(s)?`}
+        description="Are you sure you want to delete the selected checklist subtasks? This will remove them from the corresponding jobs' checklists."
+        onConfirm={handleBulkDeleteSubtasks}
+      />
+
+      <Dialog
+        open={Boolean(jobsToDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setJobsToDelete(null);
+            setForceDeleteJobs(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete {jobsToDelete?.length ?? 0} Selected Job(s)?
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Are you sure you want to delete the selected job(s)? This action cannot be undone.
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="max-h-36 overflow-y-auto rounded-md border bg-muted/40 p-2 space-y-1 text-xs">
+              {jobsToDelete?.map((j) => (
+                <div key={j.id} className="flex items-center justify-between py-0.5">
+                  <span className="font-mono font-medium">{j.job_code}</span>
+                  <span className="truncate max-w-[200px] text-muted-foreground">
+                    {j.title || j.client_name}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="force-delete-tasks-jobs"
+                  checked={forceDeleteJobs}
+                  onCheckedChange={(checked) => setForceDeleteJobs(Boolean(checked))}
+                />
+                <div className="grid gap-1 leading-tight">
+                  <label
+                    htmlFor="force-delete-tasks-jobs"
+                    className="text-xs font-semibold cursor-pointer text-amber-700 dark:text-amber-400"
+                  >
+                    Force delete if there are issues
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Automatically detaches linked records (audit history, draft clearings, expenses, billing references) so the deletion succeeds cleanly.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setJobsToDelete(null);
+                setForceDeleteJobs(false);
+              }}
+              disabled={isDeletingJobs}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => handleBulkDeleteJobs(forceDeleteJobs)}
+              disabled={isDeletingJobs}
+            >
+              {isDeletingJobs
+                ? "Deleting..."
+                : forceDeleteJobs
+                  ? `Force Delete (${jobsToDelete?.length})`
+                  : `Delete (${jobsToDelete?.length})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
