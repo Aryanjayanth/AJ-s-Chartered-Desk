@@ -115,10 +115,10 @@ function SettingsPage() {
         title="Settings & Multi-Firm Management"
         subtitle="Manage your registered practice entities, billing details, and workspace preferences."
         actions={
-          isSuperAdmin ? (
+          (isManager || isSuperAdmin) ? (
             <Button onClick={() => setRegisterOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
-              Register New Firm
+              Register New Firm / Company Name
             </Button>
           ) : undefined
         }

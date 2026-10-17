@@ -45,6 +45,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
   const { data: userFirms } = useUserFirms();
 
   const [selectedFirmId, setSelectedFirmId] = useState(currentFirm?.id ?? "");
+  const [selectedCompanyName, setSelectedCompanyName] = useState(currentFirm?.name ?? "");
+  const [customCompanyName, setCustomCompanyName] = useState("");
+  const [isCustomCompany, setIsCustomCompany] = useState(false);
   const [clientId, setClientId] = useState(initialClientId ?? "");
   const [taskDate, setTaskDate] = useState(today());
   const [items, setItems] = useState<JobServiceRow[]>([]);
@@ -57,7 +60,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
     if (currentFirm?.id && !selectedFirmId) {
       setSelectedFirmId(currentFirm.id);
     }
-  }, [currentFirm?.id, selectedFirmId]);
+    if (currentFirm?.name && !selectedCompanyName) {
+      setSelectedCompanyName(currentFirm.name);
+    }
+  }, [currentFirm?.id, currentFirm?.name, selectedFirmId, selectedCompanyName]);
 
   // Fetch active services list (with automatic standard fallback seeding)
   const servicesQuery = useQuery({
@@ -350,16 +356,24 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             ? new Date(`${taskDate}T12:00:00Z`).toISOString()
             : new Date().toISOString();
 
+        const effectiveCompanyName = isCustomCompany ? customCompanyName.trim() : selectedCompanyName.trim();
+        let jobNotes = generalNotes.trim() || null;
+        if (effectiveCompanyName && effectiveCompanyName !== currentFirm?.name) {
+          jobNotes = jobNotes
+            ? `[Company: ${effectiveCompanyName}]\n${jobNotes}`
+            : `[Company: ${effectiveCompanyName}]`;
+        }
+
         const jobToInsert: any = {
           client_id: clientId,
           service_id: item.service_id,
           client_service_id: csId,
           title: jobTitle,
           fee: fee,
-          discount: 0,
+          discount: Math.min(ded, fee),
           assigned_staff: defaultStaff,
           checklist: [],
-          notes: generalNotes.trim() || null,
+          notes: jobNotes,
           auto_invoice: autoInvoice,
           due_date: dueDate || null,
           period_start: periodStart || null,
@@ -385,7 +399,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               .from("jobs")
               .update({
                 fee,
-                notes: generalNotes.trim() || null,
+                discount: Math.min(ded, fee),
+                notes: jobNotes,
                 due_date: dueDate || null,
                 auto_invoice: autoInvoice,
               })
@@ -416,8 +431,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               _job_id: currentJob.id,
               _advance: adv,
               _tds_tcs: 0,
-              _discount: 0,
-              _other_deduction: ded,
+              _discount: ded,
+              _other_deduction: 0,
               _other_addition: 0,
               _notes: "Initial advance/deductions on job creation",
             });
@@ -432,12 +447,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               const currentUserId = authData?.user?.id ?? null;
               const payPayload: any = {
                 client_id: clientId,
-                job_id: null,
+                job_id: currentJob.id,
                 amount: adv,
                 mode: "bank",
                 payment_date: taskDate || today(),
                 reference: null,
-                narration: `General advance deposit from ${selectedClient?.name || "client"}`,
+                narration: `Advance payment for job ${currentJob.job_code} (${jobTitle})`,
                 created_by: currentUserId,
               };
               if (activeFirmId) payPayload.firm_id = activeFirmId;
@@ -530,13 +545,76 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         <section className="rounded-xl border bg-card p-5 space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">
-                Billing Firm / Company
-              </label>
-              <div className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-xs font-medium text-foreground">
-                <Building className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="truncate">{currentFirm?.name || "Active Practice Firm"}</span>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">
+                  Billing Firm / Company
+                </label>
+                {!isCustomCompany ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomCompany(true);
+                      setCustomCompanyName("");
+                    }}
+                    className="text-[11px] text-primary hover:underline font-medium"
+                  >
+                    + Custom name
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomCompany(false);
+                      setSelectedCompanyName(currentFirm?.name || "");
+                    }}
+                    className="text-[11px] text-muted-foreground hover:underline font-medium"
+                  >
+                    Select existing
+                  </button>
+                )}
               </div>
+              {isCustomCompany ? (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={customCompanyName}
+                    onChange={(e) => setCustomCompanyName(e.target.value)}
+                    placeholder="Enter custom company / trade name…"
+                    className="h-9 text-xs"
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <NativeSelect
+                  value={selectedCompanyName || currentFirm?.name || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "__custom__") {
+                      setIsCustomCompany(true);
+                      setCustomCompanyName("");
+                    } else {
+                      setSelectedCompanyName(val);
+                      const matchedFirm = userFirms?.find((f) => f.name === val);
+                      if (matchedFirm) {
+                        setSelectedFirmId(matchedFirm.id);
+                      }
+                    }
+                  }}
+                  className="h-9 text-xs font-medium"
+                >
+                  {userFirms && userFirms.length > 0 ? (
+                    userFirms.map((f) => (
+                      <option key={f.id} value={f.name}>
+                        {f.name} {f.id === currentFirm?.id ? "(Default)" : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={currentFirm?.name || "Fusion Prime"}>
+                      {currentFirm?.name || "Fusion Prime"}
+                    </option>
+                  )}
+                  <option value="__custom__">+ Enter another company name…</option>
+                </NativeSelect>
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">

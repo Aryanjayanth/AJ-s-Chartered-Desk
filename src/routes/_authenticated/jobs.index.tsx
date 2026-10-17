@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Plus, CheckCircle2, ArrowRight, Download, Check, Clock, PauseCircle, XCircle, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, CheckCircle2, ArrowRight, Download, Check, Clock, PauseCircle, XCircle, Trash2, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter, DateRangePicke
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { JobForm } from "@/components/app/JobForm";
 import { readList } from "@/lib/supabase-read";
 import { deleteJobs } from "@/lib/firms.functions";
@@ -46,6 +47,7 @@ function JobsPage() {
   const qc = useQueryClient();
   const { canCreate, canEdit, canDelete, canSeeAmounts } = usePermissions();
   const { data: profiles } = useProfiles();
+  const { data: currentFirm } = useCurrentFirm();
   const [open, setOpen] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [jobsToDelete, setJobsToDelete] = useState<any[] | null>(null);
@@ -56,6 +58,7 @@ function JobsPage() {
     client: "",
     service: "",
     staff: "",
+    company: "",
     from: "",
     to: "",
   });
@@ -149,8 +152,11 @@ function JobsPage() {
                 invoices: { id: string; invoice_no: string; status: string } | null;
               }> | null
             )?.[0]?.invoices;
+            const companyMatch = j.notes?.match(/\[Company:\s*([^\]]+)\]/);
+            const companyName = companyMatch ? companyMatch[1] : null;
             return {
               ...j,
+              company_name: companyName,
               client_name: j.clients?.name ?? null,
               service_name: j.services?.name ?? null,
               assigned_staff_name: j.profiles?.full_name ?? null,
@@ -166,12 +172,27 @@ function JobsPage() {
   const all = q.data ?? [];
   const clients = [...new Map(all.map((j) => [j.client_id, j.client_name])).entries()];
   const services = [...new Map(all.map((j) => [j.service_id, j.service_name])).entries()];
+  const uniqueCompanies = useMemo(() => {
+    const list: string[] = [];
+    if (currentFirm?.name) list.push(currentFirm.name);
+    for (const j of all) {
+      if (j.company_name && !list.includes(j.company_name)) {
+        list.push(j.company_name);
+      }
+    }
+    return list;
+  }, [all, currentFirm?.name]);
+
   const rows = all.filter(
     (j) =>
       (selectedStatuses.length === 0 || selectedStatuses.includes(jobDisplayStatus(j))) &&
       (!fl.client || j.client_id === fl.client) &&
       (!fl.service || j.service_id === fl.service) &&
       (!fl.staff || j.assigned_staff === fl.staff) &&
+      (!fl.company ||
+        (fl.company === currentFirm?.name
+          ? !j.company_name || j.company_name === currentFirm?.name
+          : j.company_name === fl.company)) &&
       (!fl.from || (j.created_at ? j.created_at.slice(0, 10) >= fl.from : false)) &&
       (!fl.to || (j.created_at ? j.created_at.slice(0, 10) <= fl.to : false)),
   );
@@ -299,11 +320,12 @@ function JobsPage() {
         )}
         onRowClick={(j) => navigate({ to: "/jobs/$id", params: { id: j.id } })}
         empty="No jobs match these filters."
-        search={(j) => `${j.job_code} ${j.title} ${j.client_name ?? ""}`}
+        search={(j) => `${j.job_code} ${j.title} ${j.client_name ?? ""} ${j.company_name ?? ""}`}
         exportFilename="jobs"
         exportTransform={(j) => ({
           "Job Code": j.job_code,
           "Title": j.title,
+          "Billing Company": j.company_name || currentFirm?.name || "Practice Firm",
           "Client": j.client_name ?? "",
           "Service": j.service_name ?? "",
           "Status": label(jobDisplayStatus(j)),
@@ -328,6 +350,16 @@ function JobsPage() {
               onChange={setSelectedStatuses}
               className="w-36"
             />
+            {uniqueCompanies.length > 1 && (
+              <NativeSelect value={fl.company} onChange={s("company")} className="w-36">
+                <option value="">All companies</option>
+                {uniqueCompanies.map((cName) => (
+                  <option key={cName} value={cName}>
+                    {cName}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
             <ClientSelect
               value={fl.client}
               onChange={(id) => setFl((p) => ({ ...p, client: id }))}
@@ -375,7 +407,17 @@ function JobsPage() {
             key: "title",
             header: "Title / Service",
             sort: (j) => j.title,
-            render: (j) => <span className="font-medium text-foreground">{j.title}</span>,
+            render: (j) => (
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">{j.title}</span>
+                {j.company_name && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary/90">
+                    <Building2 className="h-3 w-3 shrink-0" />
+                    {j.company_name}
+                  </span>
+                )}
+              </div>
+            ),
           },
           {
             key: "c",

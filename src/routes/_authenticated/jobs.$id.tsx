@@ -301,9 +301,10 @@ function JobDetail() {
 
   const raiseInvoiceNow = async () => {
     setRaising(true);
+    const linkedPaymentId = payQ.data?.[0]?.id || null;
     const { data: invId, error } = await supabase.rpc("create_invoice_for_job", {
       _job_id: id,
-      _payment_id: null,
+      _payment_id: linkedPaymentId,
       _invoice_date: new Date().toISOString().slice(0, 10),
       _due_date: job.due_date ?? new Date().toISOString().slice(0, 10),
       _tax_rate: 0,
@@ -524,9 +525,9 @@ function JobDetail() {
                   {job.services?.name}
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Billing Firm</div>
+                  <div className="text-xs text-muted-foreground">Billing Firm / Company</div>
                   <span className="font-medium text-foreground">
-                    {userFirms?.find((f) => f.id === job.firm_id)?.name ?? "Practice Firm"}
+                    {job.notes?.match(/\[Company:\s*([^\]]+)\]/)?.[1] ?? userFirms?.find((f) => f.id === job.firm_id)?.name ?? "Practice Firm"}
                   </span>
                 </div>
                 <div>
@@ -541,22 +542,58 @@ function JobDetail() {
                   <div className="text-xs text-muted-foreground">Created</div>
                   {fmtDate(job.created_at)}
                 </div>
-                {canSeeAmounts("jobs") && (
-                  <>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Fee</div>
-                      {inr(job.fee)}
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Discount</div>
-                      {inr(job.discount)}
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Net Amount</div>
-                      <span className="font-semibold">{inr(job.net_amount)}</span>
-                    </div>
-                  </>
-                )}
+                {canSeeAmounts("jobs") && (() => {
+                  const advancePaid = (payQ.data ?? []).reduce((acc, p) => acc + Number(p.amount || 0), 0);
+                  const netAmount = Number(job.net_amount ?? job.fee ?? 0);
+                  const balanceDue = Math.max(0, netAmount - advancePaid);
+                  return (
+                    <>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Gross Fee</div>
+                        <span className="font-mono">{inr(job.fee)}</span>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Discount / Deductions</div>
+                        <span className="font-mono text-amber-600 dark:text-amber-400">
+                          {Number(job.discount) > 0 ? `− ${inr(job.discount)}` : inr(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Net Billable</div>
+                        <span className="font-mono font-semibold">{inr(job.net_amount)}</span>
+                      </div>
+                      {advancePaid > 0 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">Advance Received</div>
+                          <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                            {inr(advancePaid)}
+                          </span>
+                        </div>
+                      )}
+                      {advancePaid > 0 && (
+                        <div>
+                          <div className="text-xs text-muted-foreground">Remaining Balance</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span
+                              className={`font-mono font-bold ${balanceDue > 0 ? "text-primary" : "text-emerald-600 dark:text-emerald-400"}`}
+                            >
+                              {inr(balanceDue)}
+                            </span>
+                            {balanceDue > 0 ? (
+                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                                Partial Payment
+                              </span>
+                            ) : (
+                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                Fully Covered
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>
