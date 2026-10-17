@@ -56,15 +56,15 @@ function UnallocatedPage() {
         exportFilename="unallocated_payments"
         exportTransform={(p) => ({
           "Payment Code": p.payment_code,
-          "Client": p.clients?.name ?? "",
+          Client: p.clients?.name ?? "",
           "Payment Date": fmtDate(p.payment_date),
           "Age (Days)": daysBetween(p.payment_date),
-          "Mode": MODES[p.mode] ?? p.mode,
-          "Reference": p.reference ?? "",
+          Mode: MODES[p.mode] ?? p.mode,
+          Reference: p.reference ?? "",
           "Total Amount": p.amount,
           "Allocated Amount": p.allocated_amount,
           "Unallocated Balance": Number(p.amount) - Number(p.allocated_amount),
-          "Status": p.status,
+          Status: p.status,
         })}
         columns={[
           { key: "payment_code", header: "Payment", className: "font-mono text-xs" },

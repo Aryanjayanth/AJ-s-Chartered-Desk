@@ -415,7 +415,10 @@ function ReportsPage() {
             />
           </Field>
           <Field label="Service">
-            <NativeSelect value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}>
+            <NativeSelect
+              value={f.service}
+              onChange={(e) => setF({ ...f, service: e.target.value })}
+            >
               <option value="">All</option>
               {d?.s.map((s) => (
                 <option key={s.id} value={s.id}>

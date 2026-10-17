@@ -126,7 +126,8 @@ function RecurringPage() {
         for (const cs of activeSchedules) {
           if (cs.end_date && cs.end_date < cs.start_date) continue;
           const svcName = (cs.services as { name?: string })?.name ?? "Compliance Service";
-          const autoInv = (cs.services as { auto_invoice?: boolean })?.auto_invoice ?? cs.auto_invoice ?? false;
+          const autoInv =
+            (cs.services as { auto_invoice?: boolean })?.auto_invoice ?? cs.auto_invoice ?? false;
           const freq = cs.frequency || "monthly";
 
           // Calculate periods
@@ -158,10 +159,13 @@ function RecurringPage() {
             }
           } else {
             // Recurring periods
-            const stepMonths = freq === "monthly" ? 1 : freq === "quarterly" ? 3 : freq === "half_yearly" ? 6 : 12;
-            let cur = new Date(`${cs.start_date.slice(0, 7)}-01T00:00:00Z`);
+            const stepMonths =
+              freq === "monthly" ? 1 : freq === "quarterly" ? 3 : freq === "half_yearly" ? 6 : 12;
+            const cur = new Date(`${cs.start_date.slice(0, 7)}-01T00:00:00Z`);
             const target = new Date(`${upto.slice(0, 7)}-01T00:00:00Z`);
-            const endLimit = cs.end_date ? new Date(`${cs.end_date.slice(0, 7)}-01T00:00:00Z`) : null;
+            const endLimit = cs.end_date
+              ? new Date(`${cs.end_date.slice(0, 7)}-01T00:00:00Z`)
+              : null;
 
             while (cur <= target && (!endLimit || cur <= endLimit)) {
               const ps = cur.toISOString().slice(0, 10);
@@ -174,7 +178,20 @@ function RecurringPage() {
               dueD.setUTCDate(dueD.getUTCDate() + (cs.due_days || 0));
               const dueDate = dueD.toISOString().slice(0, 10);
 
-              const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+              const monthNames = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+              ];
               const pLabel = `${monthNames[cur.getUTCMonth()]} ${cur.getUTCFullYear()}`;
               const title = `${svcName} – ${pLabel}`;
 
@@ -300,17 +317,17 @@ function RecurringPage() {
         search={(r) => `${r.client_name ?? ""} ${r.service_name ?? ""}`}
         exportFilename="recurring_schedules"
         exportTransform={(r) => ({
-          "Client": r.client_name ?? "",
-          "Service": r.service_name ?? "",
+          Client: r.client_name ?? "",
+          Service: r.service_name ?? "",
           "Agreed Fee": canSeeAmounts("recurring") && r.agreed_fee != null ? r.agreed_fee : "—",
-          "Frequency": FREQS[r.frequency] ?? r.frequency,
+          Frequency: FREQS[r.frequency] ?? r.frequency,
           "Start Date": fmtDate(r.start_date),
           "End Date": fmtDate(r.end_date),
           "Due Days": r.due_days,
           "Assigned Staff": r.assigned_staff_name ?? "",
           "Auto-Invoice": r.auto_invoice ? "Yes" : "No",
-          "Status": r.status,
-          "Notes": r.notes ?? "",
+          Status: r.status,
+          Notes: r.notes ?? "",
         })}
         columns={[
           {
@@ -336,7 +353,11 @@ function RecurringPage() {
             render: (r) => (r.agreed_fee == null ? "—" : inr(r.agreed_fee)),
           },
           { key: "sd", header: "Start Date", render: (r) => fmtDate(r.start_date) },
-          { key: "ed", header: "End Date", render: (r) => (r.end_date ? fmtDate(r.end_date) : "Ongoing") },
+          {
+            key: "ed",
+            header: "End Date",
+            render: (r) => (r.end_date ? fmtDate(r.end_date) : "Ongoing"),
+          },
           {
             key: "ai",
             header: "Auto-Invoice",
@@ -600,4 +621,3 @@ function EditRecurringDialog({
     </Dialog>
   );
 }
-

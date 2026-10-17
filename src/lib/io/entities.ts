@@ -158,7 +158,13 @@ export const ENTITIES: Entity[] = [
         sample: "9876543211",
         note: "Optional alternate 10-digit number.",
       },
-      { key: "email", label: "Email", type: "email", sample: "accounts@acme.com", note: "Optional valid email address." },
+      {
+        key: "email",
+        label: "Email",
+        type: "email",
+        sample: "accounts@acme.com",
+        note: "Optional valid email address.",
+      },
       {
         key: "pan",
         label: "PAN",
@@ -225,7 +231,13 @@ export const ENTITIES: Entity[] = [
         sample: "active",
         note: "active, inactive, or suspended. Leave blank for active.",
       },
-      { key: "notes", label: "Notes", type: "longtext", sample: "Referred by Mr. Rao.", note: "Optional internal notes." },
+      {
+        key: "notes",
+        label: "Notes",
+        type: "longtext",
+        sample: "Referred by Mr. Rao.",
+        note: "Optional internal notes.",
+      },
       {
         key: "client_code",
         label: "Client Code",

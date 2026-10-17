@@ -41,7 +41,11 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
 
   const errorMessage =
-    error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error);
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

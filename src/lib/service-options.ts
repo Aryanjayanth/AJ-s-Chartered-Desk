@@ -33,8 +33,22 @@ export const SERVICE_TYPES = [
 export const normalizeServiceType = (type: string | null | undefined, name?: string): string => {
   const t = (type ?? "").trim();
   const n = (name ?? "").trim().toLowerCase();
-  if (t === "GST Registration & Amendments" || t === "GST Registration" || n.includes("gst registration")) return "GST";
-  if (t === "TDS / TCS" || t === "TDS/TCS" || t === "TDS" || t === "Tax Audit" || n.includes("tds") || n.includes("tcs") || n.includes("tax audit")) return "Income Tax";
+  if (
+    t === "GST Registration & Amendments" ||
+    t === "GST Registration" ||
+    n.includes("gst registration")
+  )
+    return "GST";
+  if (
+    t === "TDS / TCS" ||
+    t === "TDS/TCS" ||
+    t === "TDS" ||
+    t === "Tax Audit" ||
+    n.includes("tds") ||
+    n.includes("tcs") ||
+    n.includes("tax audit")
+  )
+    return "Income Tax";
   return t || "Other";
 };
 

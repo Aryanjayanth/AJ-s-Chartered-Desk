@@ -295,7 +295,7 @@ function PaymentsPage() {
           loading={payQuery.isLoading}
           onRowClick={(p) => {
             if (p.job_id) {
-              navigate({ to: "/clearing", search: { job: p.job_id, client: p.client_id } });
+              navigate({ to: "/clearing", search: { client: p.client_id } });
             } else {
               navigate({ to: "/clients/$id", params: { id: p.client_id } });
             }

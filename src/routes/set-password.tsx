@@ -24,7 +24,10 @@ export const Route = createFileRoute("/set-password")({
   head: () => ({
     meta: [
       { title: "Activate Account & Set Password — CA PracticeDesk" },
-      { name: "description", content: "Activate your CA PracticeDesk account using your direct link or OTP code." },
+      {
+        name: "description",
+        content: "Activate your CA PracticeDesk account using your direct link or OTP code.",
+      },
       { property: "og:title", content: "Activate Account & Set Password — CA PracticeDesk" },
       { property: "og:description", content: "Activate your CA PracticeDesk account." },
       { property: "og:type", content: "website" },
@@ -143,7 +146,11 @@ function SetPassword() {
 
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <img src="/logo.png" alt="CA PracticeDesk" className="mx-auto mb-2 h-12 w-auto object-contain" />
+          <img
+            src="/logo.png"
+            alt="CA PracticeDesk"
+            className="mx-auto mb-2 h-12 w-auto object-contain"
+          />
           <h2 className="text-xl font-bold tracking-tight text-white">CA PracticeDesk</h2>
           <p className="text-xs text-slate-400">Account Setup & Security</p>
         </div>
@@ -203,7 +210,10 @@ function SetPassword() {
                     </div>
                   </Field>
 
-                  <Button className="w-full h-10 bg-blue-600 hover:bg-blue-500 font-medium" disabled={busy}>
+                  <Button
+                    className="w-full h-10 bg-blue-600 hover:bg-blue-500 font-medium"
+                    disabled={busy}
+                  >
                     {busy ? "Saving…" : "Save Password & Sign In"}
                   </Button>
                 </form>
@@ -213,7 +223,9 @@ function SetPassword() {
               <div>
                 <div className="mb-4 flex items-center gap-2 text-blue-400">
                   <ShieldCheck className="h-5 w-5" />
-                  <span className="text-xs font-semibold uppercase tracking-wider">Account Activation</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider">
+                    Account Activation
+                  </span>
                 </div>
 
                 <h1 className="text-lg font-semibold text-white">Activate with OTP</h1>
@@ -287,7 +299,10 @@ function SetPassword() {
                     </div>
                   </Field>
 
-                  <Button className="w-full mt-2 h-10 bg-blue-600 hover:bg-blue-500 font-medium" disabled={busy}>
+                  <Button
+                    className="w-full mt-2 h-10 bg-blue-600 hover:bg-blue-500 font-medium"
+                    disabled={busy}
+                  >
                     {busy ? (
                       <span className="flex items-center gap-2">
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

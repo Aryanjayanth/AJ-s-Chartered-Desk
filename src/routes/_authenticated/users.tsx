@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -105,10 +106,10 @@ function UsersPage() {
         search={(u) => `${u.full_name} ${u.email}`}
         exportFilename="team_users"
         exportTransform={(u) => ({
-          "Name": u.full_name,
-          "Email": u.email,
+          Name: u.full_name,
+          Email: u.email,
           "Joined Date": fmtDate(u.created_at),
-          "Roles": u.roles.join(", "),
+          Roles: u.roles.join(", "),
         })}
         columns={[
           {

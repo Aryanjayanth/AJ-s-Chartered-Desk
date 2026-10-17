@@ -28,7 +28,10 @@ export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
       { title: "Settings — CA PracticeDesk" },
-      { name: "description", content: "Firm registration, multi-firm management, and administration settings." },
+      {
+        name: "description",
+        content: "Firm registration, multi-firm management, and administration settings.",
+      },
     ],
   }),
   component: SettingsPage,
@@ -115,7 +118,7 @@ function SettingsPage() {
         title="Settings & Multi-Firm Management"
         subtitle="Manage your registered practice entities, billing details, and workspace preferences."
         actions={
-          (isManager || isSuperAdmin) ? (
+          isManager || isSuperAdmin ? (
             <Button onClick={() => setRegisterOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
               Register New Firm / Company Name
@@ -154,9 +157,12 @@ function SettingsPage() {
         <CardHeader className="pb-3 border-b">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base font-semibold">Registered Firms &amp; Practice Entities</CardTitle>
+              <CardTitle className="text-base font-semibold">
+                Registered Firms &amp; Practice Entities
+              </CardTitle>
               <CardDescription className="text-xs mt-1">
-                All CA practice firms registered under your account. Switch between firms or register additional legal entities.
+                All CA practice firms registered under your account. Switch between firms or
+                register additional legal entities.
               </CardDescription>
             </div>
             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
@@ -180,14 +186,20 @@ function SettingsPage() {
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted border font-semibold text-primary">
                       {uFirm.logo_url ? (
-                        <img src={uFirm.logo_url} alt="" className="h-full w-full object-contain rounded-lg" />
+                        <img
+                          src={uFirm.logo_url}
+                          alt=""
+                          className="h-full w-full object-contain rounded-lg"
+                        />
                       ) : (
                         uFirm.name.slice(0, 2).toUpperCase()
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm truncate text-foreground">{uFirm.name}</span>
+                        <span className="font-semibold text-sm truncate text-foreground">
+                          {uFirm.name}
+                        </span>
                         {isCurrent && (
                           <span className="inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
                             <Check className="h-3 w-3" /> Active
@@ -195,7 +207,8 @@ function SettingsPage() {
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground truncate mt-0.5">
-                        {uFirm.city ? `${uFirm.city} • ` : ""}{uFirm.owner_email || uFirm.phone || "Active"}
+                        {uFirm.city ? `${uFirm.city} • ` : ""}
+                        {uFirm.owner_email || uFirm.phone || "Active"}
                       </div>
                     </div>
                   </div>
@@ -211,7 +224,9 @@ function SettingsPage() {
                         Switch to this Firm
                       </Button>
                     ) : (
-                      <span className="text-xs text-muted-foreground font-medium">Currently Editing</span>
+                      <span className="text-xs text-muted-foreground font-medium">
+                        Currently Editing
+                      </span>
                     )}
                   </div>
                 </div>
@@ -229,7 +244,8 @@ function SettingsPage() {
               Edit Active Firm: {currentFirm.name}
             </CardTitle>
             <CardDescription className="text-xs mt-1">
-              Configure name, GSTIN, PAN, bank account, and invoice billing parameters for the currently active firm.
+              Configure name, GSTIN, PAN, bank account, and invoice billing parameters for the
+              currently active firm.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-5 space-y-4">
@@ -239,11 +255,20 @@ function SettingsPage() {
               </div>
 
               <Field label="Firm / Company Name *" className="sm:col-span-2">
-                <Input value={f.firm_name ?? ""} onChange={set("firm_name")} placeholder="e.g. Sharma & Associates CA" />
+                <Input
+                  value={f.firm_name ?? ""}
+                  onChange={set("firm_name")}
+                  placeholder="e.g. Sharma & Associates CA"
+                />
               </Field>
 
               <Field label="Registered Address" className="sm:col-span-2">
-                <Textarea rows={2} value={f.address ?? ""} onChange={set("address")} placeholder="Office address" />
+                <Textarea
+                  rows={2}
+                  value={f.address ?? ""}
+                  onChange={set("address")}
+                  placeholder="Office address"
+                />
               </Field>
 
               <Field label="GSTIN">
@@ -267,11 +292,19 @@ function SettingsPage() {
               </Field>
 
               <Field label="Official Phone">
-                <Input value={f.phone ?? ""} onChange={set("phone")} placeholder="+91 98765 43210" />
+                <Input
+                  value={f.phone ?? ""}
+                  onChange={set("phone")}
+                  placeholder="+91 98765 43210"
+                />
               </Field>
 
               <Field label="Billing Email">
-                <Input value={f.email ?? ""} onChange={set("email")} placeholder="billing@firm.com" />
+                <Input
+                  value={f.email ?? ""}
+                  onChange={set("email")}
+                  placeholder="billing@firm.com"
+                />
               </Field>
 
               <Field label="Default GST Rate (%)">
@@ -294,7 +327,10 @@ function SettingsPage() {
                 />
               </Field>
 
-              <Field label="Invoice Notes / Default Terms (Printed on Invoices)" className="sm:col-span-2">
+              <Field
+                label="Invoice Notes / Default Terms (Printed on Invoices)"
+                className="sm:col-span-2"
+              >
                 <Textarea
                   rows={2}
                   value={f.invoice_terms ?? ""}
@@ -312,12 +348,7 @@ function SettingsPage() {
       )}
 
       {/* Register New Firm Modal */}
-      {registerOpen && (
-        <RegisterFirmDialog
-          open={registerOpen}
-          onOpenChange={setRegisterOpen}
-        />
-      )}
+      {registerOpen && <RegisterFirmDialog open={registerOpen} onOpenChange={setRegisterOpen} />}
     </div>
   );
 }
@@ -367,7 +398,8 @@ function RegisterFirmDialog({
         });
       } catch (srvErr) {
         // Fallback to RPC if server function fails
-        const { error } = await supabase.rpc("register_firm", {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase as any).rpc("register_firm", {
           _name: form.name.trim(),
           _phone: form.phone.trim() || null,
           _city: form.city.trim() || null,
@@ -416,19 +448,11 @@ function RegisterFirmDialog({
             </Field>
 
             <Field label="City / Region">
-              <Input
-                value={form.city}
-                onChange={set("city")}
-                placeholder="e.g. Mumbai"
-              />
+              <Input value={form.city} onChange={set("city")} placeholder="e.g. Mumbai" />
             </Field>
 
             <Field label="Phone">
-              <Input
-                value={form.phone}
-                onChange={set("phone")}
-                placeholder="+91 98765 43210"
-              />
+              <Input value={form.phone} onChange={set("phone")} placeholder="+91 98765 43210" />
             </Field>
 
             <Field label="Address" className="sm:col-span-2">

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -369,7 +370,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             ? new Date(`${taskDate}T12:00:00Z`).toISOString()
             : new Date().toISOString();
 
-        const effectiveCompanyName = isCustomCompany ? customCompanyName.trim() : selectedCompanyName.trim();
+        const effectiveCompanyName = isCustomCompany
+          ? customCompanyName.trim()
+          : selectedCompanyName.trim();
         let jobNotes = generalNotes.trim() || null;
         if (effectiveCompanyName && effectiveCompanyName !== currentFirm?.name) {
           jobNotes = jobNotes

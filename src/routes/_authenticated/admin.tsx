@@ -464,7 +464,9 @@ function NewFirmDialog({
               <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
                 <Sparkles className="h-6 w-6" />
               </div>
-              <DialogTitle className="text-center">Firm Created: {createdResult.firmName}</DialogTitle>
+              <DialogTitle className="text-center">
+                Firm Created: {createdResult.firmName}
+              </DialogTitle>
               <DialogDescription className="text-center">
                 Owner account created for{" "}
                 <span className="font-semibold text-foreground">{createdResult.email}</span>.
@@ -542,7 +544,11 @@ function NewFirmDialog({
                   className="w-full gap-1.5 text-xs"
                   onClick={copyFullMessage}
                 >
-                  {copiedMsg ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedMsg ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
                   {copiedMsg ? "Message Copied!" : "Copy WhatsApp Message"}
                 </Button>
                 {createdResult.link && (

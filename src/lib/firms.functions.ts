@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -19,7 +20,7 @@ async function generateActionLink(
   redirectTo?: string,
 ) {
   const targetRedirect = redirectTo || "http://localhost:5173/set-password";
-  
+
   // 1. Try invite link first
   try {
     const res = await supabaseAdmin.auth.admin.generateLink({
@@ -96,7 +97,7 @@ async function generateActionLink(
 async function doInvite(input: z.infer<typeof inviteSchema>) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const email = input.email.trim().toLowerCase();
-  
+
   // Generate a cryptographically random 6-digit OTP code
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -127,7 +128,10 @@ async function doInvite(input: z.infer<typeof inviteSchema>) {
   });
 
   if (insErr) {
-    console.warn("[doInvite] firm_invites insert with otp_code failed, attempting fallback:", insErr);
+    console.warn(
+      "[doInvite] firm_invites insert with otp_code failed, attempting fallback:",
+      insErr,
+    );
     // Fallback if otp_code column doesn't exist yet
     await supabaseAdmin.from("firm_invites").insert({
       firm_id: input.firmId,
@@ -183,7 +187,7 @@ async function doInvite(input: z.infer<typeof inviteSchema>) {
     await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: prof.id, role: input.role }, { onConflict: "user_id,role" });
-    
+
     return { status: "linked" as const, inviteLink: directLink, otpCode, emailSent: false };
   }
 
@@ -229,7 +233,7 @@ export const generateLoginLink = createServerFn({ method: "POST" })
         role: roleEnum.optional(),
         redirectTo: z.string().url().optional(),
       })
-      .parse(d)
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
@@ -283,7 +287,9 @@ export const generateLoginLink = createServerFn({ method: "POST" })
       console.warn("[generateLoginLink] metadata warn:", e);
     }
 
-    const targetRedirect = (data.redirectTo || `${process.env.APP_URL || "http://localhost:5173"}/set-password`).split("?")[0];
+    const targetRedirect = (
+      data.redirectTo || `${process.env.APP_URL || "http://localhost:5173"}/set-password`
+    ).split("?")[0];
     const link = `${targetRedirect}?email=${encodeURIComponent(email)}&otp=${otpCode}`;
 
     return { link, otpCode, email };
@@ -297,7 +303,7 @@ export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
         otp: z.string().trim().min(4, "Invalid OTP code"),
         password: z.string().min(8, "Password must be at least 8 characters"),
       })
-      .parse(d)
+      .parse(d),
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -314,9 +320,8 @@ export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
         .order("created_at", { ascending: false });
 
       if (!invErr && inv && inv.length > 0) {
-        matchedInvite = inv.find(
-          (item: any) => item.otp_code && String(item.otp_code).trim() === otp
-        ) || inv[0];
+        matchedInvite =
+          inv.find((item: any) => item.otp_code && String(item.otp_code).trim() === otp) || inv[0];
       }
     } catch (err) {
       console.warn("[verifyOtpAndSetPassword] DB lookup error:", err);
@@ -328,9 +333,7 @@ export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
 
     try {
       const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-      existingUser = usersData?.users?.find(
-        (u) => u.email?.toLowerCase() === email
-      );
+      existingUser = usersData?.users?.find((u) => u.email?.toLowerCase() === email);
       if (existingUser) {
         userId = existingUser.id;
       }
@@ -394,7 +397,9 @@ export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
     }
 
     if (!isValid) {
-      throw new Error("Invalid or expired OTP code for this email address. Please generate a new OTP or check that you entered the exact 6 digits.");
+      throw new Error(
+        "Invalid or expired OTP code for this email address. Please generate a new OTP or check that you entered the exact 6 digits.",
+      );
     }
 
     // Update password or create user
@@ -515,7 +520,10 @@ export const deleteFirm = createServerFn({ method: "POST" })
 
 export const fetchPracticeFirms = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .handler(async ({ context }) => {
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    if (!isSuper) throw new Error("Not authorised");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("firms")
@@ -535,7 +543,7 @@ export const switchActiveFirm = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ firmId: z.string().uuid().nullable() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const userId = context.user.id;
+    const userId = context.userId;
     const { error } = await supabaseAdmin
       .from("profiles")
       .update({ acting_firm_id: data.firmId })
@@ -561,8 +569,8 @@ export const registerPracticeFirm = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const userId = context.user.id;
-    const userEmail = context.user.email ?? "";
+    const userId = context.userId;
+    const userEmail = (context.claims as { email?: string } | undefined)?.email ?? "";
 
     // 1. Create firm record
     const { data: newFirm, error: firmErr } = await supabaseAdmin
@@ -594,10 +602,7 @@ export const registerPracticeFirm = createServerFn({ method: "POST" })
     });
 
     // 3. Switch active acting_firm_id to the new firm
-    await supabaseAdmin
-      .from("profiles")
-      .update({ acting_firm_id: newFirm.id })
-      .eq("id", userId);
+    await supabaseAdmin.from("profiles").update({ acting_firm_id: newFirm.id }).eq("id", userId);
 
     return { firmId: newFirm.id };
   });
@@ -605,7 +610,11 @@ export const registerPracticeFirm = createServerFn({ method: "POST" })
 export const fetchFirmBillingDetails = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ firmId: z.string().uuid() }).parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
+    if (!isSuper && currentFirm !== data.firmId) throw new Error("Not authorised");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const [fRes, sRes] = await Promise.all([
       supabaseAdmin.from("firms").select("*").eq("id", data.firmId).maybeSingle(),
@@ -627,8 +636,23 @@ export const updateInvoiceBillingDetails = createServerFn({ method: "POST" })
       customFirmName: z.string().optional(),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canEdit } = await sb.rpc("has_capability", {
+      _module: "invoices",
+      _action: "edit",
+    });
+    if (!canEdit) throw new Error("Not authorised");
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: inv } = await supabaseAdmin
+      .from("invoices")
+      .select("firm_id")
+      .eq("id", data.invoiceId)
+      .maybeSingle();
+    if (!inv) throw new Error("Invoice not found");
+    if (!isSuper && inv.firm_id !== currentFirm) throw new Error("Not authorised");
     const updates: Record<string, any> = {};
     if (data.firmId) updates.firm_id = data.firmId;
     if (data.invoiceNo?.trim()) updates.invoice_no = data.invoiceNo.trim();
@@ -638,7 +662,7 @@ export const updateInvoiceBillingDetails = createServerFn({ method: "POST" })
     }
     const { error } = await supabaseAdmin
       .from("invoices")
-      .update(updates)
+      .update(updates as never)
       .eq("id", data.invoiceId);
     if (error) throw new Error(error.message);
     return { success: true };
@@ -652,8 +676,23 @@ export const deleteJobs = createServerFn({ method: "POST" })
       force: z.boolean().default(false),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canDelete } = await sb.rpc("has_capability", {
+      _module: "jobs",
+      _action: "delete",
+    });
+    if (!canDelete) throw new Error("Not authorised");
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: jobRows } = await supabaseAdmin
+      .from("jobs")
+      .select("id, firm_id")
+      .in("id", data.jobIds);
+    if (!isSuper && (jobRows ?? []).some((j: any) => j.firm_id !== currentFirm)) {
+      throw new Error("Not authorised");
+    }
     const { jobIds, force } = data;
 
     let deleted = 0;
@@ -689,7 +728,11 @@ export const deleteJobs = createServerFn({ method: "POST" })
           // Even in regular delete, job_status_history and draft job_clearing exist for every job
           // because triggers stamp them on creation. Clean them up so deletable jobs can delete:
           await supabaseAdmin.from("job_status_history").delete().eq("job_id", jobId);
-          await supabaseAdmin.from("job_clearing").delete().eq("job_id", jobId).eq("status", "draft");
+          await supabaseAdmin
+            .from("job_clearing")
+            .delete()
+            .eq("job_id", jobId)
+            .eq("status", "draft");
         }
 
         const { error: delErr } = await supabaseAdmin.from("jobs").delete().eq("id", jobId);
@@ -723,6 +766,14 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canCreate } = await sb.rpc("has_capability", {
+      _module: "payments",
+      _action: "create",
+    });
+    if (!canCreate) throw new Error("Not authorised");
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: client } = await supabaseAdmin
       .from("clients")
@@ -730,10 +781,16 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
       .eq("id", data.clientId)
       .single();
     if (!client) throw new Error("Client not found");
+    if (!isSuper && client.firm_id !== currentFirm) throw new Error("Not authorised");
 
     // Map mode to PostgreSQL allowed check constraint: ('cash','bank','upi','cheque','card','other')
     let dbMode = data.mode.toLowerCase();
-    if (dbMode === "bank_transfer" || dbMode === "bank transfer" || dbMode === "neft" || dbMode === "rtgs") {
+    if (
+      dbMode === "bank_transfer" ||
+      dbMode === "bank transfer" ||
+      dbMode === "neft" ||
+      dbMode === "rtgs"
+    ) {
       dbMode = "bank";
     } else if (!["cash", "bank", "upi", "cheque", "card", "other"].includes(dbMode)) {
       dbMode = "other";
@@ -751,7 +808,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
         mode: dbMode,
         narration: data.narration?.trim() || (data.isAdvance ? "Advance Client Deposit" : null),
         status: "unallocated",
-        created_by: context.user?.id || null,
+        created_by: context.userId || null,
       })
       .select("id, payment_code, amount")
       .single();
@@ -782,6 +839,14 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canEdit } = await sb.rpc("has_capability", {
+      _module: "payments",
+      _action: "edit",
+    });
+    if (!canEdit) throw new Error("Not authorised");
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { paymentId, jobAllocations, expenseAllocations } = data;
 
@@ -792,12 +857,16 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
       .eq("id", paymentId)
       .single();
     if (payErr || !pay) throw new Error("Payment record not found");
+    if (!isSuper && pay.firm_id !== currentFirm) throw new Error("Not authorised");
 
     const totalJobAmt = jobAllocations.reduce((sum, j) => sum + (j.amount || 0), 0);
     const totalExpAmt = expenseAllocations.reduce((sum, e) => sum + (e.amount || 0), 0);
     const totalToAllocate = totalJobAmt + totalExpAmt;
 
-    const availableBefore = Math.max(0, Number(pay.amount || 0) - Number(pay.allocated_amount || 0));
+    const availableBefore = Math.max(
+      0,
+      Number(pay.amount || 0) - Number(pay.allocated_amount || 0),
+    );
     if (totalToAllocate > availableBefore + 0.01) {
       throw new Error(
         `Total allocation (₹${totalToAllocate.toLocaleString("en-IN")}) exceeds available payment balance (₹${availableBefore.toLocaleString("en-IN")})`,
@@ -805,7 +874,7 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
-    const userId = context.user?.id || null;
+    const userId = context.userId || null;
 
     // 2. Process Job Allocations
     for (const jAlloc of jobAllocations) {
@@ -899,7 +968,8 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
           .select("id")
           .single();
 
-        if (invErr || !newInv) throw new Error(invErr?.message || "Failed to create invoice for job");
+        if (invErr || !newInv)
+          throw new Error(invErr?.message || "Failed to create invoice for job");
         invoiceId = newInv.id;
 
         await supabaseAdmin.from("invoice_items").insert({
@@ -933,7 +1003,9 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
           .single();
 
         if (invRow) {
-          const isPaid = invRow.status === "paid" || Number(invRow.amount_paid || 0) >= Number(invRow.total || 0);
+          const isPaid =
+            invRow.status === "paid" ||
+            Number(invRow.amount_paid || 0) >= Number(invRow.total || 0);
 
           if (isPaid) {
             await supabaseAdmin
@@ -1000,9 +1072,10 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
             total: eAmt,
             amount_paid: 0,
             status: "unpaid",
-            notes: eDisc > 0
-              ? `Reimbursable Outlay Settlement: ${exp.description} (Discount/Waiver: ₹${eDisc})`
-              : `Reimbursable Outlay Settlement: ${exp.description}`,
+            notes:
+              eDisc > 0
+                ? `Reimbursable Outlay Settlement: ${exp.description} (Discount/Waiver: ₹${eDisc})`
+                : `Reimbursable Outlay Settlement: ${exp.description}`,
             created_by: userId,
           })
           .select("id")
@@ -1027,16 +1100,15 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         }
       }
 
-      const clearNote = eDisc > 0
-        ? `Cleared in ${pay.payment_code} (Reimbursed: ₹${eAmt}, Waived/Discount: ₹${eDisc})`
-        : `Cleared in ${pay.payment_code}`;
+      const clearNote =
+        eDisc > 0
+          ? `Cleared in ${pay.payment_code} (Reimbursed: ₹${eAmt}, Waived/Discount: ₹${eDisc})`
+          : `Cleared in ${pay.payment_code}`;
 
       await supabaseAdmin
         .from("expenses")
         .update({
-          notes: exp.notes
-            ? `${exp.notes} (${clearNote})`
-            : clearNote,
+          notes: exp.notes ? `${exp.notes} (${clearNote})` : clearNote,
         })
         .eq("id", exp.id);
     }
@@ -1075,6 +1147,3 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
       status: updatedStatus,
     };
   });
-
-
-

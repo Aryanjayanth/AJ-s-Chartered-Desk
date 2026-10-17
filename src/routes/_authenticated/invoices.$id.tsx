@@ -90,10 +90,15 @@ function InvoiceView() {
     queryKey: ["invoice", id],
     enabled: isFinance,
     queryFn: async () => {
-      const iRes = await supabase.from("invoices").select("*, clients(*)").eq("id", id).maybeSingle();
+      const iRes = await supabase
+        .from("invoices")
+        .select("*, clients(*)")
+        .eq("id", id)
+        .maybeSingle();
       if (iRes.error) throw iRes.error;
       const invData = iRes.data;
-      if (!invData) return { inv: null, items: [], allocs: [], discounts: [], settings: null, firm: null };
+      if (!invData)
+        return { inv: null, items: [], allocs: [], discounts: [], settings: null, firm: null };
 
       const [items, al, disc, s, f] = await Promise.all([
         supabase.from("invoice_items").select("*, jobs(job_code)").eq("invoice_id", id),
@@ -278,13 +283,19 @@ function InvoiceView() {
         <div className="flex justify-between border-b pb-4 gap-4">
           <div className="flex items-start gap-3">
             {activeFirm?.logo_url && (
-              <img src={activeFirm.logo_url} alt="" className="h-12 w-12 object-contain rounded-md" />
+              <img
+                src={activeFirm.logo_url}
+                alt=""
+                className="h-12 w-12 object-contain rounded-md"
+              />
             )}
             <div>
               <div className="text-lg font-bold">
                 {inv.description || activeSettings?.firm_name || activeFirm?.name}
               </div>
-              <div className="whitespace-pre-line text-muted-foreground">{activeSettings?.address}</div>
+              <div className="whitespace-pre-line text-muted-foreground">
+                {activeSettings?.address}
+              </div>
               {activeSettings?.gstin && <div>GSTIN: {activeSettings.gstin}</div>}
               {activeSettings?.pan && <div>PAN: {activeSettings.pan}</div>}
               {activeSettings?.phone && <div>Phone: {activeSettings.phone}</div>}
@@ -364,7 +375,9 @@ function InvoiceView() {
         </div>
         {inv.notes && <div className="mt-2 text-xs text-muted-foreground">Notes: {inv.notes}</div>}
         {activeSettings?.bank_details && (
-          <div className="mt-2 whitespace-pre-line text-xs">Bank: {activeSettings.bank_details}</div>
+          <div className="mt-2 whitespace-pre-line text-xs">
+            Bank: {activeSettings.bank_details}
+          </div>
         )}
         <div className="mt-6 flex justify-between text-xs text-muted-foreground">
           <span />

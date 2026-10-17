@@ -57,10 +57,7 @@ export function InviteDialog({
     queryKey: ["firms-list-for-invite"],
     enabled: isSuperAdmin && !firm,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("firms")
-        .select("id, name, status")
-        .order("name");
+      const { data, error } = await supabase.from("firms").select("id, name, status").order("name");
       if (error) throw error;
       return data ?? [];
     },
@@ -109,9 +106,7 @@ export function InviteDialog({
 
   const targetFirmId = firm?.id || selectedFirmId;
   const targetFirmName =
-    firm?.name ||
-    firmsQ.data?.find((f) => f.id === selectedFirmId)?.name ||
-    "Selected Firm";
+    firm?.name || firmsQ.data?.find((f) => f.id === selectedFirmId)?.name || "Selected Firm";
 
   const send = async () => {
     if (!targetFirmId) {
@@ -146,7 +141,7 @@ export function InviteDialog({
         toast.success(
           r.status === "invited"
             ? `Invite created for ${email}`
-            : "User linked to firm successfully"
+            : "User linked to firm successfully",
         );
         resetAll();
       }
@@ -166,7 +161,9 @@ export function InviteDialog({
               <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
                 <Sparkles className="h-6 w-6" />
               </div>
-              <DialogTitle className="text-center">Credentials Ready for {invitedEmail}</DialogTitle>
+              <DialogTitle className="text-center">
+                Credentials Ready for {invitedEmail}
+              </DialogTitle>
               <DialogDescription className="text-center">
                 Role: <span className="font-semibold text-foreground">{label(invitedRole)}</span> at{" "}
                 <span className="font-semibold text-foreground">{targetFirmName}</span>.
@@ -247,7 +244,11 @@ export function InviteDialog({
                   className="w-full gap-1.5 text-xs"
                   onClick={copyFullMessage}
                 >
-                  {copiedMsg ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedMsg ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
                   {copiedMsg ? "Message Copied!" : "Copy WhatsApp Message"}
                 </Button>
                 {createdLink && (

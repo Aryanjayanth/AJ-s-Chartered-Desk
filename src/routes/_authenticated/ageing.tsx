@@ -65,7 +65,7 @@ function AgeingPage() {
               downloadCsv(
                 `receivables_ageing_${stamp}.csv`,
                 clients.map((c) => ({
-                  "Client": c.name,
+                  Client: c.name,
                   "Current (0 days)": c.b["Current"] || 0,
                   "1–30 Days": c.b["1–30 Days"] || 0,
                   "31–60 Days": c.b["31–60 Days"] || 0,

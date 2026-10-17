@@ -266,7 +266,6 @@ function NewInvoicePage() {
                         onClick={() =>
                           navigate({
                             to: "/clearing",
-                            search: { job: c.job.job_id },
                           })
                         }
                       >
@@ -299,10 +298,7 @@ function NewInvoicePage() {
                   )}
                 </NativeSelect>
               </Field>
-              <Field
-                label="Invoice Number / Pattern"
-                hint="Leave blank for auto sequence"
-              >
+              <Field label="Invoice Number / Pattern" hint="Leave blank for auto sequence">
                 <Input
                   value={customInvoiceNo}
                   onChange={(e) => setCustomInvoiceNo(e.target.value)}

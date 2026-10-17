@@ -1,5 +1,15 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowUpDown, ChevronLeft, ChevronRight, Download, Inbox, Search, CheckSquare, Square, MinusSquare } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Inbox,
+  Search,
+  CheckSquare,
+  Square,
+  MinusSquare,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -128,36 +138,34 @@ export function DataTable<T extends { id: string | number }>({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {bulkActions ? (
-              bulkActions(selectedRows, clearSelection)
-            ) : (
-              exportFilename && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1.5 font-medium bg-background"
-                  onClick={() => {
-                    const dataToExport = exportTransform
-                      ? selectedRows.map(exportTransform)
-                      : selectedRows.map((r) => {
-                          const out: Record<string, unknown> = {};
-                          for (const col of columns) {
-                            if (!col.header || col.key === "x" || col.key === "actions") continue;
-                            const val = (r as Record<string, unknown>)[col.key];
-                            out[col.header] = val ?? "";
-                          }
-                          return out;
-                        });
-                    const stamp = new Date().toISOString().slice(0, 10);
-                    downloadCsv(`${exportFilename}_selected_${stamp}.csv`, dataToExport);
-                  }}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Export Selected ({selectedIds.length})
-                </Button>
-              )
-            )}
+            {bulkActions
+              ? bulkActions(selectedRows, clearSelection)
+              : exportFilename && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 font-medium bg-background"
+                    onClick={() => {
+                      const dataToExport = exportTransform
+                        ? selectedRows.map(exportTransform)
+                        : selectedRows.map((r) => {
+                            const out: Record<string, unknown> = {};
+                            for (const col of columns) {
+                              if (!col.header || col.key === "x" || col.key === "actions") continue;
+                              const val = (r as Record<string, unknown>)[col.key];
+                              out[col.header] = val ?? "";
+                            }
+                            return out;
+                          });
+                      const stamp = new Date().toISOString().slice(0, 10);
+                      downloadCsv(`${exportFilename}_selected_${stamp}.csv`, dataToExport);
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export Selected ({selectedIds.length})
+                  </Button>
+                )}
             <Button
               type="button"
               variant="ghost"

@@ -70,13 +70,13 @@ function AuditPage() {
         }
         exportFilename="audit_logs"
         exportTransform={(a) => ({
-          "Timestamp": fmtDateTime(a.created_at),
-          "User": uname(a.user_id),
-          "Module": label(a.module),
-          "Action": label(a.action),
+          Timestamp: fmtDateTime(a.created_at),
+          User: uname(a.user_id),
+          Module: label(a.module),
+          Action: label(a.action),
           "Record ID": a.record_id,
-          "Summary": summary(a.new_value),
-          "Reason": a.reason ?? "",
+          Summary: summary(a.new_value),
+          Reason: a.reason ?? "",
         })}
         onRowClick={(a) => setSel(a)}
         toolbar={

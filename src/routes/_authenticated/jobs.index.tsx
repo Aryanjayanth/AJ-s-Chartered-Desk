@@ -1,7 +1,19 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Plus, CheckCircle2, ArrowRight, Download, Check, Clock, PauseCircle, XCircle, Trash2, Building2 } from "lucide-react";
+import {
+  Plus,
+  CheckCircle2,
+  ArrowRight,
+  Download,
+  Check,
+  Clock,
+  PauseCircle,
+  XCircle,
+  Trash2,
+  Building2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -21,7 +33,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, NativeSelect, PageHeader, ChecklistFilter, DateRangePicker } from "@/components/app/common";
+import {
+  ClientSelect,
+  NativeSelect,
+  PageHeader,
+  ChecklistFilter,
+  DateRangePicker,
+} from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -29,7 +47,15 @@ import { useCurrentFirm } from "@/hooks/use-firm";
 import { JobForm } from "@/components/app/JobForm";
 import { readList } from "@/lib/supabase-read";
 import { deleteJobs } from "@/lib/firms.functions";
-import { downloadCsv, errMsg, fmtDate, inr, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
+import {
+  downloadCsv,
+  errMsg,
+  fmtDate,
+  inr,
+  JOB_STATUSES,
+  jobDisplayStatus,
+  label,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/jobs/")({
@@ -130,7 +156,6 @@ function JobsPage() {
       toast.error(errMsg(err));
     }
   };
-
 
   // Read through the RPC rather than the table
   const q = useQuery({
@@ -296,15 +321,15 @@ function JobsPage() {
               onClick={() => {
                 const dataToExport = selectedJobs.map((j) => ({
                   "Job Code": j.job_code,
-                  "Title": j.title,
-                  "Client": j.client_name ?? "",
-                  "Service": j.service_name ?? "",
-                  "Status": label(jobDisplayStatus(j)),
+                  Title: j.title,
+                  Client: j.client_name ?? "",
+                  Service: j.service_name ?? "",
+                  Status: label(jobDisplayStatus(j)),
                   "Period Start": fmtDate(j.period_start),
                   "Period End": fmtDate(j.period_end),
                   "Created Date": fmtDate(j.created_at),
                   "Due Date": fmtDate(j.due_date),
-                  "Fee": canSeeAmounts("jobs") && j.fee != null ? j.fee : "—",
+                  Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "—",
                   "Net Amount": canSeeAmounts("jobs") && j.net_amount != null ? j.net_amount : "—",
                   "Assigned Staff": j.assigned_staff_name ?? "",
                   "Auto-Invoice": j.auto_invoice ? "Yes" : "No",
@@ -324,16 +349,16 @@ function JobsPage() {
         exportFilename="jobs"
         exportTransform={(j) => ({
           "Job Code": j.job_code,
-          "Title": j.title,
+          Title: j.title,
           "Billing Company": j.company_name || currentFirm?.name || "Practice Firm",
-          "Client": j.client_name ?? "",
-          "Service": j.service_name ?? "",
-          "Status": label(jobDisplayStatus(j)),
+          Client: j.client_name ?? "",
+          Service: j.service_name ?? "",
+          Status: label(jobDisplayStatus(j)),
           "Period Start": fmtDate(j.period_start),
           "Period End": fmtDate(j.period_end),
           "Created Date": fmtDate(j.created_at),
           "Due Date": fmtDate(j.due_date),
-          "Fee": canSeeAmounts("jobs") && j.fee != null ? j.fee : "—",
+          Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "—",
           "Net Amount": canSeeAmounts("jobs") && j.net_amount != null ? j.net_amount : "—",
           "Assigned Staff": j.assigned_staff_name ?? "",
           "Auto-Invoice": j.auto_invoice ? "Yes" : "No",
@@ -398,9 +423,7 @@ function JobsPage() {
             header: "Job Code",
             sort: (j) => j.job_code,
             render: (j) => (
-              <span className="font-mono text-xs font-semibold text-primary">
-                {j.job_code}
-              </span>
+              <span className="font-mono text-xs font-semibold text-primary">{j.job_code}</span>
             ),
           },
           {
@@ -423,7 +446,9 @@ function JobsPage() {
             key: "c",
             header: "Client",
             sort: (j) => j.client_name ?? "",
-            render: (j) => <span className="font-medium text-muted-foreground">{j.client_name}</span>,
+            render: (j) => (
+              <span className="font-medium text-muted-foreground">{j.client_name}</span>
+            ),
           },
           {
             key: "created_at",
@@ -529,7 +554,8 @@ function JobsPage() {
                     Force delete if there are issues
                   </label>
                   <p className="text-[11px] text-muted-foreground">
-                    Automatically detaches linked records (audit history, draft clearings, expenses, billing references) so the deletion succeeds cleanly.
+                    Automatically detaches linked records (audit history, draft clearings, expenses,
+                    billing references) so the deletion succeeds cleanly.
                   </p>
                 </div>
               </div>

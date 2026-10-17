@@ -74,17 +74,17 @@ function InvoicesPage() {
         exportFilename="invoices"
         exportTransform={(i) => ({
           "Invoice No": i.invoice_no,
-          "Client": i.clients?.name ?? "",
+          Client: i.clients?.name ?? "",
           "Invoice Date": fmtDate(i.invoice_date),
           "Due Date": fmtDate(i.due_date),
-          "Subtotal": i.subtotal,
-          "Discount": i.discount,
+          Subtotal: i.subtotal,
+          Discount: i.discount,
           "Tax Rate": i.tax_rate ?? 0,
           "Tax Amount": i.tax_amount ?? 0,
-          "Total": i.total,
-          "Paid": i.amount_paid,
-          "Outstanding": i.outstanding,
-          "Status": label(invoiceDisplayStatus(i)),
+          Total: i.total,
+          Paid: i.amount_paid,
+          Outstanding: i.outstanding,
+          Status: label(invoiceDisplayStatus(i)),
         })}
         onRowClick={(i) => navigate({ to: "/invoices/$id", params: { id: i.id } })}
         toolbar={

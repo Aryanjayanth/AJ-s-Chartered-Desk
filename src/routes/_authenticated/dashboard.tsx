@@ -84,8 +84,12 @@ function Dashboard() {
       const [c, j, i, p, a] = await Promise.all([
         supabase.from("clients").select("id,status,created_at"),
         supabase.from("jobs").select("id,status,due_date,created_at"),
-        supabase.from("invoices").select("id,status,total,outstanding,due_date,invoice_date,created_at"),
-        supabase.from("payments").select("id,amount,mode,status,allocated_amount,payment_date,created_at"),
+        supabase
+          .from("invoices")
+          .select("id,status,total,outstanding,due_date,invoice_date,created_at"),
+        supabase
+          .from("payments")
+          .select("id,amount,mode,status,allocated_amount,payment_date,created_at"),
         supabase
           .from("audit_logs")
           .select("id,action,module,created_at,new_value")
@@ -110,18 +114,6 @@ function Dashboard() {
       };
     },
   });
-
-  if (loading) return null;
-  if (!isFinance) {
-    const landing = canView("payments")
-      ? "/payments"
-      : canView("jobs")
-        ? "/jobs"
-        : canView("clients")
-          ? "/clients"
-          : "/roles";
-    return <Navigate to={landing} />;
-  }
 
   const d = q.data;
   const daysLimit = getRangeDays(range);
@@ -172,7 +164,10 @@ function Dashboard() {
 
   // Stock-market timeline performance trend
   const timelineData = useMemo(() => {
-    const pointsMap = new Map<string, { date: string; Invoiced: number; Collected: number; Outstanding: number }>();
+    const pointsMap = new Map<
+      string,
+      { date: string; Invoiced: number; Collected: number; Outstanding: number }
+    >();
 
     openInv.forEach((inv) => {
       const dt = inv.invoice_date ? inv.invoice_date.slice(0, 10) : inv.created_at?.slice(0, 10);
@@ -220,6 +215,18 @@ function Dashboard() {
       .reduce((s, x) => s + Number(x.outstanding), 0),
   }));
 
+  if (loading) return null;
+  if (!isFinance) {
+    const landing = canView("payments")
+      ? "/payments"
+      : canView("jobs")
+        ? "/jobs"
+        : canView("clients")
+          ? "/clients"
+          : "/roles";
+    return <Navigate to={landing} />;
+  }
+
   return (
     <div>
       <PageHeader
@@ -227,7 +234,9 @@ function Dashboard() {
         subtitle="Live practice performance and financial analytics."
         actions={
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Range:</span>
+            <span className="text-xs font-medium text-muted-foreground hidden sm:inline">
+              Range:
+            </span>
             <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-semibold">
               {(["1M", "2M", "3M", "6M", "1Y", "ALL"] as TimeRange[]).map((r) => (
                 <button
@@ -297,7 +306,8 @@ function Dashboard() {
                 </span>
               </div>
               <CardDescription className="text-xs mt-0.5">
-                Comparison of Invoiced fees, Collections, and Outstanding balances over the selected timeframe.
+                Comparison of Invoiced fees, Collections, and Outstanding balances over the selected
+                timeframe.
               </CardDescription>
             </div>
 
@@ -344,7 +354,11 @@ function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
                 <XAxis dataKey="formattedDate" fontSize={11} tickLine={false} />
-                <YAxis fontSize={11} tickFormatter={(v) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} tickLine={false} />
+                <YAxis
+                  fontSize={11}
+                  tickFormatter={(v) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                  tickLine={false}
+                />
                 <Tooltip
                   formatter={(val: number, name: string) => [inr(val), name]}
                   labelFormatter={(l) => `Period: ${l}`}

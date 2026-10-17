@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -69,7 +70,8 @@ export const Route = createFileRoute("/_authenticated/clearing")({
       { title: "Payment Clearing — CA PracticeDesk" },
       {
         name: "description",
-        content: "Manual payment clearing and allocation desk across jobs and reimbursable client expenses.",
+        content:
+          "Manual payment clearing and allocation desk across jobs and reimbursable client expenses.",
       },
     ],
   }),
@@ -134,7 +136,9 @@ function ClearingDeskPage() {
   const { canCreate, canEdit } = usePermissions();
 
   // Filters for Main Payments History View
-  const [statusFilter, setStatusFilter] = useState<"all" | "available" | "partial" | "cleared">("available");
+  const [statusFilter, setStatusFilter] = useState<"all" | "available" | "partial" | "cleared">(
+    "available",
+  );
   const [clientFilter, setClientFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -152,8 +156,12 @@ function ClearingDeskPage() {
 
   // Complete Window Allocation Workspace State
   const [allocatingPayment, setAllocatingPayment] = useState<PaymentRow | null>(null);
-  const [jobAllocations, setJobAllocations] = useState<Record<string, { amount: number; discount: number }>>({});
-  const [expenseAllocations, setExpenseAllocations] = useState<Record<string, { amount: number; discount: number }>>({});
+  const [jobAllocations, setJobAllocations] = useState<
+    Record<string, { amount: number; discount: number }>
+  >({});
+  const [expenseAllocations, setExpenseAllocations] = useState<
+    Record<string, { amount: number; discount: number }>
+  >({});
   const [isAllocating, setIsAllocating] = useState(false);
 
   // 1. Fetch All Payments
@@ -228,7 +236,9 @@ function ClearingDeskPage() {
     queryFn: async (): Promise<ClientExpense[]> => {
       const { data, error } = await supabase
         .from("expenses")
-        .select("id, kind, expense_date, category, description, amount, mode, client_id, job_id, notes")
+        .select(
+          "id, kind, expense_date, category, description, amount, mode, client_id, job_id, notes",
+        )
         .order("expense_date", { ascending: false });
 
       if (error) throw error;
@@ -244,7 +254,8 @@ function ClearingDeskPage() {
   const filteredPayments = useMemo(() => {
     return allPayments.filter((p) => {
       if (statusFilter === "available" && p.available_amount <= 0) return false;
-      if (statusFilter === "partial" && (p.allocated_amount <= 0 || p.available_amount <= 0)) return false;
+      if (statusFilter === "partial" && (p.allocated_amount <= 0 || p.available_amount <= 0))
+        return false;
       if (statusFilter === "cleared" && p.available_amount > 0) return false;
 
       if (clientFilter && p.client_id !== clientFilter) return false;
@@ -303,10 +314,7 @@ function ClearingDeskPage() {
   }, [jobAllocations]);
 
   const currentLiveExpAllocTotal = useMemo(() => {
-    return Object.values(expenseAllocations).reduce(
-      (sum, e) => sum + (Number(e?.amount) || 0),
-      0,
-    );
+    return Object.values(expenseAllocations).reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
   }, [expenseAllocations]);
 
   const currentLiveTotalAllocated = currentLiveJobAllocTotal + currentLiveExpAllocTotal;
@@ -315,9 +323,7 @@ function ClearingDeskPage() {
   const isOverallocated = liveRemaining < -0.01;
 
   const hasJobAction = useMemo(() => {
-    return Object.values(jobAllocations).some(
-      (j) => (j.amount || 0) > 0 || (j.discount || 0) > 0,
-    );
+    return Object.values(jobAllocations).some((j) => (j.amount || 0) > 0 || (j.discount || 0) > 0);
   }, [jobAllocations]);
 
   const hasExpAction = useMemo(() => {
@@ -327,10 +333,7 @@ function ClearingDeskPage() {
   }, [expenseAllocations]);
 
   const currentLiveJobDiscTotal = useMemo(() => {
-    return Object.values(jobAllocations).reduce(
-      (sum, j) => sum + (Number(j.discount) || 0),
-      0,
-    );
+    return Object.values(jobAllocations).reduce((sum, j) => sum + (Number(j.discount) || 0), 0);
   }, [jobAllocations]);
 
   const currentLiveExpDiscTotal = useMemo(() => {
@@ -488,11 +491,15 @@ function ClearingDeskPage() {
       const job = clientJobsToPay.find((j) => j.id === jobId);
       const maxJobDue = job ? Math.max(0, job.net_amount - (item.discount || 0)) : 0;
       if (job && item.amount > maxJobDue + 0.01) {
-        toast.error(`Job "${job.job_code}" allocation (${inr(item.amount)}) exceeds net due (${inr(maxJobDue)})`);
+        toast.error(
+          `Job "${job.job_code}" allocation (${inr(item.amount)}) exceeds net due (${inr(maxJobDue)})`,
+        );
         return;
       }
       if (job && (item.discount || 0) > job.net_amount + 0.01) {
-        toast.error(`Job "${job.job_code}" discount (${inr(item.discount)}) cannot exceed fee (${inr(job.net_amount)})`);
+        toast.error(
+          `Job "${job.job_code}" discount (${inr(item.discount)}) cannot exceed fee (${inr(job.net_amount)})`,
+        );
         return;
       }
     }
@@ -650,7 +657,9 @@ function ClearingDeskPage() {
               </div>
               <div className="text-[11px] text-muted-foreground mt-0.5">
                 Receipt Date: {fmtDate(allocatingPayment.payment_date)} · Mode:{" "}
-                <span className="capitalize">{MODES[allocatingPayment.mode as keyof typeof MODES] ?? allocatingPayment.mode}</span>
+                <span className="capitalize">
+                  {MODES[allocatingPayment.mode as keyof typeof MODES] ?? allocatingPayment.mode}
+                </span>
                 {allocatingPayment.narration ? ` · ${allocatingPayment.narration}` : ""}
               </div>
             </div>
@@ -757,7 +766,9 @@ function ClearingDeskPage() {
           <div className="text-xs font-semibold text-destructive flex items-center gap-2 bg-destructive/10 border border-destructive/20 p-3 rounded-lg">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>
-              Total allocation ({inr(currentLiveTotalAllocated)}) exceeds available payment ({inr(paymentAvailable)}) by {inr(Math.abs(liveRemaining))}. Please reduce the entered amounts.
+              Total allocation ({inr(currentLiveTotalAllocated)}) exceeds available payment (
+              {inr(paymentAvailable)}) by {inr(Math.abs(liveRemaining))}. Please reduce the entered
+              amounts.
             </span>
           </div>
         )}
@@ -795,7 +806,9 @@ function ClearingDeskPage() {
                       key={job.id}
                       className={cn(
                         "rounded-lg border p-4 bg-card transition-all space-y-3",
-                        Number(curAlloc) > 0 ? "border-primary/60 shadow-xs bg-primary/2" : "hover:border-border",
+                        Number(curAlloc) > 0
+                          ? "border-primary/60 shadow-xs bg-primary/2"
+                          : "hover:border-border",
                       )}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -844,8 +857,12 @@ function ClearingDeskPage() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const allocWithoutCurrent = currentLiveTotalAllocated - (Number(curAlloc) || 0);
-                                  const roomAvailable = Math.max(0, paymentAvailable - allocWithoutCurrent);
+                                  const allocWithoutCurrent =
+                                    currentLiveTotalAllocated - (Number(curAlloc) || 0);
+                                  const roomAvailable = Math.max(
+                                    0,
+                                    paymentAvailable - allocWithoutCurrent,
+                                  );
                                   const targetAmt = Math.min(netDue, roomAvailable);
                                   handleJobAmountChange(job.id, String(targetAmt), netDue);
                                 }}
@@ -862,11 +879,14 @@ function ClearingDeskPage() {
                               max={netDue}
                               step="any"
                               value={curAlloc}
-                              onChange={(e) => handleJobAmountChange(job.id, e.target.value, netDue)}
+                              onChange={(e) =>
+                                handleJobAmountChange(job.id, e.target.value, netDue)
+                              }
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 font-semibold",
-                                Number(curAlloc) > netDue && "border-destructive text-destructive focus-visible:ring-destructive",
+                                Number(curAlloc) > netDue &&
+                                  "border-destructive text-destructive focus-visible:ring-destructive",
                               )}
                             />
                             {Number(curAlloc) > 0 && (
@@ -905,11 +925,14 @@ function ClearingDeskPage() {
                               max={job.net_amount}
                               step="any"
                               value={curDisc}
-                              onChange={(e) => handleJobDiscountChange(job.id, e.target.value, job.net_amount)}
+                              onChange={(e) =>
+                                handleJobDiscountChange(job.id, e.target.value, job.net_amount)
+                              }
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12",
-                                Number(curDisc) > job.net_amount && "border-destructive text-destructive focus-visible:ring-destructive",
+                                Number(curDisc) > job.net_amount &&
+                                  "border-destructive text-destructive focus-visible:ring-destructive",
                               )}
                             />
                             {Number(curDisc) > 0 && (
@@ -1000,16 +1023,15 @@ function ClearingDeskPage() {
                               </span>
                             )}
                             {exp.notes && (
-                              <span className="ml-2 text-[10px] italic">
-                                · Note: {exp.notes}
-                              </span>
+                              <span className="ml-2 text-[10px] italic">· Note: {exp.notes}</span>
                             )}
                           </div>
                         </div>
 
                         <div className="text-right">
                           <div className="text-[11px] text-muted-foreground">
-                            Outlay Incurred: <span className="font-mono font-semibold">{inr(exp.amount)}</span>
+                            Outlay Incurred:{" "}
+                            <span className="font-mono font-semibold">{inr(exp.amount)}</span>
                           </div>
                           {Number(curExpDisc) > 0 && (
                             <div className="text-[10px] text-emerald-600 font-mono">
@@ -1033,8 +1055,12 @@ function ClearingDeskPage() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const allocWithoutCurrent = currentLiveTotalAllocated - (Number(curExpAlloc) || 0);
-                                  const roomAvailable = Math.max(0, paymentAvailable - allocWithoutCurrent);
+                                  const allocWithoutCurrent =
+                                    currentLiveTotalAllocated - (Number(curExpAlloc) || 0);
+                                  const roomAvailable = Math.max(
+                                    0,
+                                    paymentAvailable - allocWithoutCurrent,
+                                  );
                                   const targetAmt = Math.min(netExpDue, roomAvailable);
                                   handleExpenseAmountChange(exp.id, String(targetAmt), netExpDue);
                                 }}
@@ -1051,11 +1077,14 @@ function ClearingDeskPage() {
                               max={netExpDue}
                               step="any"
                               value={curExpAlloc}
-                              onChange={(e) => handleExpenseAmountChange(exp.id, e.target.value, netExpDue)}
+                              onChange={(e) =>
+                                handleExpenseAmountChange(exp.id, e.target.value, netExpDue)
+                              }
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 font-semibold",
-                                Number(curExpAlloc) > netExpDue && "border-destructive text-destructive focus-visible:ring-destructive",
+                                Number(curExpAlloc) > netExpDue &&
+                                  "border-destructive text-destructive focus-visible:ring-destructive",
                               )}
                             />
                             {Number(curExpAlloc) > 0 && (
@@ -1094,11 +1123,14 @@ function ClearingDeskPage() {
                               max={exp.amount}
                               step="any"
                               value={curExpDisc}
-                              onChange={(e) => handleExpenseDiscountChange(exp.id, e.target.value, exp.amount)}
+                              onChange={(e) =>
+                                handleExpenseDiscountChange(exp.id, e.target.value, exp.amount)
+                              }
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12",
-                                Number(curExpDisc) > exp.amount && "border-destructive text-destructive focus-visible:ring-destructive",
+                                Number(curExpDisc) > exp.amount &&
+                                  "border-destructive text-destructive focus-visible:ring-destructive",
                               )}
                             />
                             {Number(curExpDisc) > 0 && (
@@ -1345,9 +1377,7 @@ function ClearingDeskPage() {
             className: "w-32",
             sort: (p) => p.payment_code,
             render: (p) => (
-              <span className="font-mono text-xs font-semibold text-primary">
-                {p.payment_code}
-              </span>
+              <span className="font-mono text-xs font-semibold text-primary">{p.payment_code}</span>
             ),
           },
           {
@@ -1391,9 +1421,7 @@ function ClearingDeskPage() {
             header: "Total Received",
             className: "w-32 text-right",
             sort: (p) => p.amount,
-            render: (p) => (
-              <span className="font-mono text-xs font-semibold">{inr(p.amount)}</span>
-            ),
+            render: (p) => <span className="font-mono text-xs font-semibold">{inr(p.amount)}</span>,
           },
           {
             key: "allocated_amount",
@@ -1431,20 +1459,29 @@ function ClearingDeskPage() {
             render: (p) => {
               if (p.available_amount <= 0) {
                 return (
-                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px]">
+                  <Badge
+                    variant="outline"
+                    className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px]"
+                  >
                     Fully Cleared
                   </Badge>
                 );
               }
               if (p.allocated_amount > 0) {
                 return (
-                  <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px]">
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px]"
+                  >
                     Partially Allocated
                   </Badge>
                 );
               }
               return (
-                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-[10px]">
+                <Badge
+                  variant="outline"
+                  className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-[10px]"
+                >
                   Unallocated Advance
                 </Badge>
               );
@@ -1480,7 +1517,8 @@ function ClearingDeskPage() {
               Record Payment Entry
             </DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              Add a client deposit or payment. It will be recorded into payment history ready for manual allocation.
+              Add a client deposit or payment. It will be recorded into payment history ready for
+              manual allocation.
             </p>
           </DialogHeader>
 

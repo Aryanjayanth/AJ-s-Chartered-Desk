@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -17,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -243,7 +245,10 @@ function TasksPage() {
       jobUpdates.status = "in_progress";
     }
 
-    const { error } = await supabase.from("jobs").update(jobUpdates).eq("id", job.id);
+    const { error } = await supabase
+      .from("jobs")
+      .update(jobUpdates as never)
+      .eq("id", job.id);
 
     if (error) {
       toast.error(errMsg(error));
@@ -433,7 +438,10 @@ function TasksPage() {
           updates.completed_at = null;
         }
 
-        await supabase.from("jobs").update(updates).eq("id", jobId);
+        await supabase
+          .from("jobs")
+          .update(updates as never)
+          .eq("id", jobId);
         if (allDone && job.status !== "completed") {
           await supabase.rpc("update_job_status", {
             _job_id: jobId,
@@ -444,9 +452,7 @@ function TasksPage() {
       }
 
       toast.dismiss(toastId);
-      toast.success(
-        `Marked ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}`,
-      );
+      toast.success(`Marked ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}`);
       clearSelection();
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["jobs"] }),
@@ -476,7 +482,10 @@ function TasksPage() {
         if (!job) continue;
         const currentChecklist = Array.isArray(job.checklist) ? job.checklist : [];
         const newChecklist = currentChecklist.filter((_, idx) => !indices.has(idx));
-        await supabase.from("jobs").update({ checklist: newChecklist }).eq("id", jobId);
+        await supabase
+          .from("jobs")
+          .update({ checklist: newChecklist as never })
+          .eq("id", jobId);
       }
 
       toast.dismiss(toastId);
@@ -1175,7 +1184,8 @@ function TasksPage() {
                     Force delete if there are issues
                   </label>
                   <p className="text-[11px] text-muted-foreground">
-                    Automatically detaches linked records (audit history, draft clearings, expenses, billing references) so the deletion succeeds cleanly.
+                    Automatically detaches linked records (audit history, draft clearings, expenses,
+                    billing references) so the deletion succeeds cleanly.
                   </p>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -61,7 +62,9 @@ function ServicesPage() {
     const { error } = await supabase.from("services").delete().eq("id", service.id);
     if (error) {
       if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
-        toast.error(`Cannot delete "${service.name}" because it is currently assigned to clients or used in compliance jobs.`);
+        toast.error(
+          `Cannot delete "${service.name}" because it is currently assigned to clients or used in compliance jobs.`,
+        );
       } else {
         toast.error(errMsg(error));
       }
@@ -154,9 +157,10 @@ function ServicesPage() {
           "Service Name": s.name,
           "Service Type": s.service_type,
           "Billing Type": s.billing_type === "recurring" ? "Recurring" : "One-time",
-          "Frequency": s.frequency === "one_time" ? "One-time" : (FREQ_LABEL[s.frequency] ?? s.frequency),
+          Frequency:
+            s.frequency === "one_time" ? "One-time" : (FREQ_LABEL[s.frequency] ?? s.frequency),
           "Auto-Invoice": s.auto_invoice ? "Yes" : "No",
-          "Status": s.active ? "Active" : "Inactive",
+          Status: s.active ? "Active" : "Inactive",
           "Scope of Work": s.description ?? "",
           "Created Date": fmtDate(s.created_at),
         })}

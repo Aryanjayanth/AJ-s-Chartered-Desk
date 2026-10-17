@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -20,7 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/app/DataTable";
-import { ChipFilterRow, ChipSelect, PageHeader, ConfirmDeleteDialog, type ChipOption } from "@/components/app/common";
+import {
+  ChipFilterRow,
+  ChipSelect,
+  PageHeader,
+  ConfirmDeleteDialog,
+  type ChipOption,
+} from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ClientForm } from "@/components/app/ClientForm";
 import { EntityAvatar } from "@/components/app/EntityAvatar";
@@ -125,7 +132,9 @@ function ClientsPage() {
     const { error } = await supabase.from("clients").delete().eq("id", id);
     if (error) {
       if (error.message.includes("violates foreign key") || (error as any).code === "23503") {
-        toast.error(`Cannot delete "${name}" because they have active jobs, invoices, or payments.`);
+        toast.error(
+          `Cannot delete "${name}" because they have active jobs, invoices, or payments.`,
+        );
       } else {
         toast.error(error.message);
       }
@@ -270,22 +279,22 @@ function ClientsPage() {
                   `clients_${stamp}.csv`,
                   rows.map((c) => ({
                     "Client Code": c.client_code,
-                    "Name": c.name,
+                    Name: c.name,
                     "Client Type": c.client_type,
-                    "Status": c.status,
-                    "Mobile": c.mobile,
+                    Status: c.status,
+                    Mobile: c.mobile,
                     "Secondary Phone": c.secondary_phone ?? "",
-                    "Email": c.email ?? "",
-                    "PAN": c.pan ?? "",
-                    "TAN": c.tan ?? "",
-                    "GSTIN": c.gstin ?? "",
+                    Email: c.email ?? "",
+                    PAN: c.pan ?? "",
+                    TAN: c.tan ?? "",
+                    GSTIN: c.gstin ?? "",
                     "GST Type": c.gst_type ?? "",
-                    "Industry": c.industry ?? c.business_type ?? "",
+                    Industry: c.industry ?? c.business_type ?? "",
                     "Contact Person": c.contact_person_name ?? "",
                     "Contact Phone": c.contact_person_phone ?? "",
                     "Contact Role": c.contact_person_role ?? "",
                     "Assigned Staff": pname(c.assigned_staff),
-                    "Address": c.address,
+                    Address: c.address,
                   })),
                 );
               }}

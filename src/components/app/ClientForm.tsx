@@ -253,7 +253,7 @@ export function ClientForm({
   }, [open, busy, onOpenChange]);
 
   const set = (k: string) => (e: { target: { value: string } }) => {
-    let rawVal = e.target.value;
+    const rawVal = e.target.value;
     let val = rawVal;
 
     if (k === "mobile" || k === "secondary_phone" || k === "contact_person_phone") {

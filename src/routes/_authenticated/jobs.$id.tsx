@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -473,7 +474,6 @@ function JobDetail() {
                       onClick={() =>
                         navigate({
                           to: "/clearing",
-                          search: { job: id },
                         })
                       }
                     >
@@ -527,7 +527,9 @@ function JobDetail() {
                 <div>
                   <div className="text-xs text-muted-foreground">Billing Firm / Company</div>
                   <span className="font-medium text-foreground">
-                    {job.notes?.match(/\[Company:\s*([^\]]+)\]/)?.[1] ?? userFirms?.find((f) => f.id === job.firm_id)?.name ?? "Practice Firm"}
+                    {job.notes?.match(/\[Company:\s*([^\]]+)\]/)?.[1] ??
+                      userFirms?.find((f) => f.id === job.firm_id)?.name ??
+                      "Practice Firm"}
                   </span>
                 </div>
                 <div>
@@ -542,62 +544,66 @@ function JobDetail() {
                   <div className="text-xs text-muted-foreground">Created</div>
                   {fmtDate(job.created_at)}
                 </div>
-                {canSeeAmounts("jobs") && (() => {
-                  const advancePaid = (payQ.data ?? []).reduce((acc, p) => acc + Number(p.amount || 0), 0);
-                  const netAmount = Number(job.net_amount ?? job.fee ?? 0);
-                  const balanceDue = Math.max(0, netAmount - advancePaid);
-                  return (
-                    <>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Gross Fee</div>
-                        <span className="font-mono">{inr(job.fee)}</span>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Discount / Deductions</div>
-                        <span className="font-mono text-amber-600 dark:text-amber-400">
-                          {Number(job.discount) > 0 ? `− ${inr(job.discount)}` : inr(0)}
-                        </span>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Net Billable</div>
-                        <span className="font-mono font-semibold">{inr(job.net_amount)}</span>
-                      </div>
-                      {advancePaid > 0 && (
+                {canSeeAmounts("jobs") &&
+                  (() => {
+                    const advancePaid = (payQ.data ?? []).reduce(
+                      (acc, p) => acc + Number(p.amount || 0),
+                      0,
+                    );
+                    const netAmount = Number(job.net_amount ?? job.fee ?? 0);
+                    const balanceDue = Math.max(0, netAmount - advancePaid);
+                    return (
+                      <>
                         <div>
-                          <div className="text-xs text-muted-foreground">Advance Received</div>
-                          <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                            {inr(advancePaid)}
+                          <div className="text-xs text-muted-foreground">Gross Fee</div>
+                          <span className="font-mono">{inr(job.fee)}</span>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Discount / Deductions</div>
+                          <span className="font-mono text-amber-600 dark:text-amber-400">
+                            {Number(job.discount) > 0 ? `− ${inr(job.discount)}` : inr(0)}
                           </span>
                         </div>
-                      )}
-                      {advancePaid > 0 && (
                         <div>
-                          <div className="text-xs text-muted-foreground">Remaining Balance</div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span
-                              className={`font-mono font-bold ${balanceDue > 0 ? "text-primary" : "text-emerald-600 dark:text-emerald-400"}`}
-                            >
-                              {inr(balanceDue)}
-                            </span>
-                            {balanceDue > 0 ? (
-                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                                Partial Payment
-                              </span>
-                            ) : advancePaid > netAmount ? (
-                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                Surplus / Credit ({inr(advancePaid - netAmount)})
-                              </span>
-                            ) : (
-                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                Fully Covered
-                              </span>
-                            )}
-                          </div>
+                          <div className="text-xs text-muted-foreground">Net Billable</div>
+                          <span className="font-mono font-semibold">{inr(job.net_amount)}</span>
                         </div>
-                      )}
-                    </>
-                  );
-                })()}
+                        {advancePaid > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Advance Received</div>
+                            <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                              {inr(advancePaid)}
+                            </span>
+                          </div>
+                        )}
+                        {advancePaid > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Remaining Balance</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span
+                                className={`font-mono font-bold ${balanceDue > 0 ? "text-primary" : "text-emerald-600 dark:text-emerald-400"}`}
+                              >
+                                {inr(balanceDue)}
+                              </span>
+                              {balanceDue > 0 ? (
+                                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                                  Partial Payment
+                                </span>
+                              ) : advancePaid > netAmount ? (
+                                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                  Surplus / Credit ({inr(advancePaid - netAmount)})
+                                </span>
+                              ) : (
+                                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                  Fully Covered
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
               </div>
             </CardContent>
           </Card>
@@ -868,7 +874,6 @@ function JobDetail() {
                 onClick={() =>
                   navigate({
                     to: "/clearing",
-                    search: { job: id },
                   })
                 }
               >

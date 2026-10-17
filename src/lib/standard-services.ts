@@ -96,7 +96,9 @@ export const STANDARD_SERVICES_LIST = [
 export async function fetchFirmServices() {
   const { data, error } = await supabase
     .from("services")
-    .select("id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code, firm_id")
+    .select(
+      "id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code, firm_id",
+    )
     .eq("active", true)
     .order("name");
 
@@ -114,7 +116,9 @@ export async function fetchFirmServices() {
     const { data: inserted, error: insertError } = await supabase
       .from("services")
       .insert(STANDARD_SERVICES_LIST)
-      .select("id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code");
+      .select(
+        "id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code",
+      );
 
     if (!insertError && inserted && inserted.length > 0) {
       return inserted;

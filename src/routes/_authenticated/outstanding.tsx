@@ -5,7 +5,14 @@ import { Download } from "lucide-react";
 import { DataTable } from "@/components/app/DataTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClientSelect, NativeSelect, NoAccess, PageHeader, StatCard, DateRangePicker } from "@/components/app/common";
+import {
+  ClientSelect,
+  NativeSelect,
+  NoAccess,
+  PageHeader,
+  StatCard,
+  DateRangePicker,
+} from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useProfiles, useRoles } from "@/hooks/use-roles";
 import { useReceivables } from "@/hooks/use-receivables";
@@ -129,10 +136,10 @@ function OutstandingPage() {
                   downloadCsv(
                     `outstanding_by_client_${stamp}.csv`,
                     byClient.map((c) => ({
-                      "Client": c.name,
-                      "Receivable": c.total,
-                      "Paid": c.paid,
-                      "Outstanding": c.out,
+                      Client: c.name,
+                      Receivable: c.total,
+                      Paid: c.paid,
+                      Outstanding: c.out,
                     })),
                   );
                 } else {
@@ -140,15 +147,15 @@ function OutstandingPage() {
                     `outstanding_invoices_${stamp}.csv`,
                     rows.map((i) => ({
                       "Invoice No": i.invoice_no,
-                      "Client": i.clients?.name ?? "",
-                      "Service": svcOf(i) || i.description,
+                      Client: i.clients?.name ?? "",
+                      Service: svcOf(i) || i.description,
                       "Invoice Date": fmtDate(i.invoice_date),
                       "Due Date": fmtDate(i.due_date),
-                      "Ageing": ageingBucket(i.due_date),
+                      Ageing: ageingBucket(i.due_date),
                       "Original Amount": i.total,
                       "Paid Amount": i.amount_paid,
-                      "Outstanding": i.outstanding,
-                      "Status": label(invoiceDisplayStatus(i)),
+                      Outstanding: i.outstanding,
+                      Status: label(invoiceDisplayStatus(i)),
                     })),
                   );
                 }
@@ -184,15 +191,15 @@ function OutstandingPage() {
           exportFilename="outstanding_invoices"
           exportTransform={(i) => ({
             "Invoice No": i.invoice_no,
-            "Client": i.clients?.name ?? "",
-            "Service": svcOf(i) || i.description,
+            Client: i.clients?.name ?? "",
+            Service: svcOf(i) || i.description,
             "Invoice Date": fmtDate(i.invoice_date),
             "Due Date": fmtDate(i.due_date),
-            "Ageing": ageingBucket(i.due_date),
+            Ageing: ageingBucket(i.due_date),
             "Original Amount": i.total,
             "Paid Amount": i.amount_paid,
-            "Outstanding": i.outstanding,
-            "Status": label(invoiceDisplayStatus(i)),
+            Outstanding: i.outstanding,
+            Status: label(invoiceDisplayStatus(i)),
           })}
           toolbar={
             <>
