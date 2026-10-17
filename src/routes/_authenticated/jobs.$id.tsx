@@ -583,6 +583,10 @@ function JobDetail() {
                               <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
                                 Partial Payment
                               </span>
+                            ) : advancePaid > netAmount ? (
+                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                Surplus / Credit ({inr(advancePaid - netAmount)})
+                              </span>
                             ) : (
                               <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                                 Fully Covered

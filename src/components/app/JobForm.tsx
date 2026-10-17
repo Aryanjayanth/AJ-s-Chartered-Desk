@@ -238,6 +238,19 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         toast.error(`Deductions cannot be negative for "${item.service_name}"`);
         return;
       }
+      if (dedNum > feeNum) {
+        toast.error(
+          `Deduction (${inr(dedNum)}) cannot exceed the agreed fee (${inr(feeNum)}) for "${item.service_name}"`,
+        );
+        return;
+      }
+      const maxAdvanceAllowed = Math.max(0, feeNum - dedNum);
+      if (advNum > maxAdvanceAllowed) {
+        toast.error(
+          `Advance (${inr(advNum)}) cannot exceed the required net amount (${inr(maxAdvanceAllowed)}) for "${item.service_name}"`,
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -919,15 +932,25 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                               <Input
                                 type="number"
                                 min={0}
+                                max={Math.max(0, feeNum - dedNum)}
                                 step="0.01"
                                 value={item.advance}
                                 onChange={(e) =>
                                   handleUpdateItem(item.service_id, "advance", e.target.value)
                                 }
                                 placeholder="0.00"
-                                className="h-8 pl-5 text-right font-mono text-xs bg-background"
+                                className={`h-8 pl-5 text-right font-mono text-xs bg-background ${
+                                  advNum > Math.max(0, feeNum - dedNum)
+                                    ? "border-destructive text-destructive focus-visible:ring-destructive"
+                                    : ""
+                                }`}
                               />
                             </div>
+                            {advNum > Math.max(0, feeNum - dedNum) && (
+                              <p className="text-[10px] text-destructive text-right mt-0.5 font-medium">
+                                Exceeds {inr(Math.max(0, feeNum - dedNum))}
+                              </p>
+                            )}
                           </td>
 
                           {/* Deductions / TDS (₹) */}
@@ -939,15 +962,25 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                               <Input
                                 type="number"
                                 min={0}
+                                max={feeNum}
                                 step="0.01"
                                 value={item.deductions}
                                 onChange={(e) =>
                                   handleUpdateItem(item.service_id, "deductions", e.target.value)
                                 }
                                 placeholder="0.00"
-                                className="h-8 pl-5 text-right font-mono text-xs bg-background"
+                                className={`h-8 pl-5 text-right font-mono text-xs bg-background ${
+                                  dedNum > feeNum
+                                    ? "border-destructive text-destructive focus-visible:ring-destructive"
+                                    : ""
+                                }`}
                               />
                             </div>
+                            {dedNum > feeNum && (
+                              <p className="text-[10px] text-destructive text-right mt-0.5 font-medium">
+                                Exceeds {inr(feeNum)}
+                              </p>
+                            )}
                           </td>
 
                           {/* Net Due (₹) */}
