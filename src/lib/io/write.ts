@@ -52,7 +52,7 @@ const SAMPLE_FILL = "FFF1F5F9";
 export async function buildTemplateXlsx(entity: Entity): Promise<Blob> {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
-  wb.creator = "CA PracticeDesk";
+  wb.creator = "AJ's Chartered Desk";
   wb.created = new Date();
 
   const cols = entity.columns.filter((c) => !c.computed);
@@ -182,7 +182,7 @@ export async function buildTemplateXlsx(entity: Entity): Promise<Blob> {
   });
 
   doc.addRow([]);
-  doc.addRow(["Computed by PracticeDesk (ignored on import):"]);
+  doc.addRow(["Computed by AJ's Chartered Desk (ignored on import):"]);
   entity.columns
     .filter((c) => c.computed)
     .forEach((c) => doc.addRow([c.label, "—", c.type, c.note ?? "Generated automatically."]));
@@ -221,7 +221,7 @@ export async function downloadXlsx(
 ) {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
-  wb.creator = "CA PracticeDesk";
+  wb.creator = "AJ's Chartered Desk";
   for (const s of sheets) {
     const ws = wb.addWorksheet(s.name.slice(0, 28) || "Data");
     ws.addRow(s.header);

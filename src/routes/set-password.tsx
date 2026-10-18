@@ -23,13 +23,13 @@ import { errMsg } from "@/lib/format";
 export const Route = createFileRoute("/set-password")({
   head: () => ({
     meta: [
-      { title: "Activate Account & Set Password — CA PracticeDesk" },
+      { title: "Activate Account & Set Password — AJ's Chartered Desk" },
       {
         name: "description",
-        content: "Activate your CA PracticeDesk account using your direct link or OTP code.",
+        content: "Activate your AJ's Chartered Desk account using your direct link or OTP code.",
       },
-      { property: "og:title", content: "Activate Account & Set Password — CA PracticeDesk" },
-      { property: "og:description", content: "Activate your CA PracticeDesk account." },
+      { property: "og:title", content: "Activate Account & Set Password — AJ's Chartered Desk" },
+      { property: "og:description", content: "Activate your AJ's Chartered Desk account." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -87,7 +87,7 @@ function SetPassword() {
     try {
       const { error } = await supabase.auth.updateUser({ password: pw });
       if (error) throw error;
-      toast.success("Password set successfully — Welcome to PracticeDesk!");
+      toast.success("Password set successfully — Welcome to AJ's Chartered Desk!");
       const { data: sa } = await supabase.rpc("is_super_admin");
       navigate({ to: sa ? "/admin" : "/dashboard", replace: true });
     } catch (err) {
@@ -148,10 +148,10 @@ function SetPassword() {
         <div className="mb-6 text-center">
           <img
             src="/logo.png"
-            alt="CA PracticeDesk"
+            alt="AJ's Chartered Desk"
             className="mx-auto mb-2 h-12 w-auto object-contain"
           />
-          <h2 className="text-xl font-bold tracking-tight text-white">CA PracticeDesk</h2>
+          <h2 className="text-xl font-bold tracking-tight text-white">AJ's Chartered Desk</h2>
           <p className="text-xs text-slate-400">Account Setup & Security</p>
         </div>
 

@@ -30,7 +30,7 @@ import { fetchFirmServices } from "@/lib/standard-services";
 export const Route = createFileRoute("/_authenticated/services")({
   head: () => ({
     meta: [
-      { title: "Services — CA PracticeDesk" },
+      { title: "Services — AJ's Chartered Desk" },
       { name: "description", content: "Service master." },
     ],
   }),

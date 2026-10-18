@@ -38,7 +38,7 @@ import type { Json } from "@/integrations/supabase/types";
 export const Route = createFileRoute("/_authenticated/jobs/$id")({
   head: () => ({
     meta: [
-      { title: "Job — CA PracticeDesk" },
+      { title: "Job — AJ's Chartered Desk" },
       { name: "description", content: "Job details and status history." },
     ],
   }),
@@ -49,6 +49,9 @@ function JobDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  useEffect(() => {
+    if (id === "new") navigate({ to: "/jobs" });
+  }, [id, navigate]);
   const { isFinance } = useRoles();
   const { canEdit, canDelete, canSeeAmounts } = usePermissions();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -90,6 +93,7 @@ function JobDetail() {
       if (j.error) throw j.error;
       return { job: j.data, history: h.data ?? [] };
     },
+    enabled: id !== "new",
   });
   // The single source of truth for workflow position. Everything below renders
   // from this rather than recomputing stage rules in the browser.
@@ -101,19 +105,60 @@ function JobDetail() {
       if (!isWorkflow(data)) throw new Error("Unexpected workflow response");
       return data;
     },
+    enabled: id !== "new",
   });
 
   const payQ = useQuery({
     queryKey: ["job-payments", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Payments may be linked directly to the job (advance on creation) or
+      // allocated later through an invoice for this job (clearing). Resolve both.
+      const { data: direct } = await supabase
         .from("payments")
         .select("id,payment_code,amount,payment_date,status,mode")
         .eq("job_id", id)
         .order("payment_date", { ascending: false });
-      if (error) throw error;
-      return data;
+
+      const { data: items } = await supabase
+        .from("invoice_items")
+        .select("invoice_id")
+        .eq("job_id", id);
+      const invoiceIds = (items ?? []).map((x: { invoice_id: string }) => x.invoice_id);
+      let allocated: {
+        id: string;
+        payment_code: string;
+        amount: number;
+        payment_date: string;
+        status: string;
+        mode: string;
+      }[] = [];
+      if (invoiceIds.length > 0) {
+        const { data: allocs } = await supabase
+          .from("payment_allocations")
+          .select("payment_id")
+          .in("invoice_id", invoiceIds);
+        const paymentIds = [
+          ...new Set((allocs ?? []).map((a: { payment_id: string }) => a.payment_id)),
+        ];
+        if (paymentIds.length > 0) {
+          const { data: pays } = await supabase
+            .from("payments")
+            .select("id,payment_code,amount,payment_date,status,mode")
+            .in("id", paymentIds)
+            .order("payment_date", { ascending: false });
+          allocated = (pays ?? []) as typeof allocated;
+        }
+      }
+
+      const merged = [...(direct ?? []), ...allocated];
+      const seen = new Set<string>();
+      return merged.filter((p) => {
+        if (seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
     },
+    enabled: id !== "new",
   });
 
   const { data: userFirms } = useUserFirms();
@@ -269,6 +314,7 @@ function JobDetail() {
     }
   }, [job]);
 
+  if (id === "new") return null;
   if (q.isLoading) return <div className="text-muted-foreground">Loading…</div>;
   if (!job)
     return (
@@ -823,13 +869,16 @@ function JobDetail() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Payment</span>
                 {payQ.data?.length ? (
-                  <Link
-                    to="/payments"
-                    className="font-mono text-primary underline underline-offset-2"
-                  >
-                    {payQ.data[0].payment_code}
-                    {payQ.data.length > 1 ? ` +${payQ.data.length - 1} more` : ""}
-                  </Link>
+                  <div className="text-right text-xs space-y-0.5">
+                    <div className="font-mono text-primary underline underline-offset-2">
+                      {payQ.data[0].payment_code}
+                    </div>
+                    <div>Amount paid: {inr(payQ.data[0].amount)}</div>
+                    <div>
+                      Status:{" "}
+                      {payQ.data[0].status === "allocated" ? "Cleared" : label(payQ.data[0].status)}
+                    </div>
+                  </div>
                 ) : (
                   <span className="text-muted-foreground">Not Created</span>
                 )}

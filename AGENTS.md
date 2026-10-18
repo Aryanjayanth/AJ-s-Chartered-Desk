@@ -1,4 +1,4 @@
-# PracticeDesk — System Architecture & Rules
+# AJ's Chartered Desk — System Architecture & Rules
 
 ## Architecture rules
 

@@ -25,7 +25,7 @@ import type { Json } from "@/integrations/supabase/types";
 export const Route = createFileRoute("/_authenticated/clearing/$jobId")({
   head: () => ({
     meta: [
-      { title: "Payment Clearing — CA PracticeDesk" },
+      { title: "Payment Clearing — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Clear and square off a job payment before invoicing.",

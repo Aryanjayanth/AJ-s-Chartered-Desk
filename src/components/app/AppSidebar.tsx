@@ -124,15 +124,15 @@ export function AppSidebar() {
           className="flex items-center gap-2.5 rounded-md p-1 transition-colors hover:bg-sidebar-accent/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
-            <img src="/logo.png" alt="CA PracticeDesk" className="h-6 w-6 object-contain" />
+            <img src="/logo.png" alt="AJ's Chartered Desk" className="h-6 w-6 object-contain" />
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold leading-tight text-sidebar-foreground">
-                {isPlatformMode ? "CA PracticeDesk" : (firm?.name ?? "CA PracticeDesk")}
+                {isPlatformMode ? "AJ's Chartered Desk" : (firm?.name ?? "AJ's Chartered Desk")}
               </div>
               <div className="text-[11px] leading-tight text-muted-foreground opacity-75">
-                {isPlatformMode ? "Super Admin" : "PracticeDesk"}
+                {isPlatformMode ? "Super Admin" : "AJ's Chartered Desk"}
               </div>
             </div>
           )}

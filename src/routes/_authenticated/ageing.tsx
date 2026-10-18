@@ -9,7 +9,7 @@ import { ageingBucket, BUCKETS, downloadCsv, inr } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/ageing")({
   head: () => ({
     meta: [
-      { title: "Ageing — CA PracticeDesk" },
+      { title: "Ageing — AJ's Chartered Desk" },
       { name: "description", content: "Receivables ageing analysis." },
     ],
   }),

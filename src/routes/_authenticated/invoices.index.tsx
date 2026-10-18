@@ -15,7 +15,7 @@ import { fmtDate, inr, invoiceDisplayStatus, label } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/invoices/")({
   head: () => ({
     meta: [
-      { title: "Invoices — CA PracticeDesk" },
+      { title: "Invoices — AJ's Chartered Desk" },
       { name: "description", content: "Billing and invoices." },
     ],
   }),

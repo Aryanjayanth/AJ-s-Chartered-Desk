@@ -38,7 +38,7 @@ import {
 export const Route = createFileRoute("/_authenticated/expenses")({
   head: () => ({
     meta: [
-      { title: "Expenses — CA PracticeDesk" },
+      { title: "Expenses — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Firm overheads, tax paid on a client's behalf, and reimbursements.",

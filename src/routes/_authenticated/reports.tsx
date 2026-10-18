@@ -26,7 +26,7 @@ import {
 export const Route = createFileRoute("/_authenticated/reports")({
   head: () => ({
     meta: [
-      { title: "Reports — CA PracticeDesk" },
+      { title: "Reports — AJ's Chartered Desk" },
       { name: "description", content: "Practice and financial reports." },
     ],
   }),

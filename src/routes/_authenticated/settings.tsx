@@ -27,7 +27,7 @@ import { errMsg } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — CA PracticeDesk" },
+      { title: "Settings — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Firm registration, multi-firm management, and administration settings.",

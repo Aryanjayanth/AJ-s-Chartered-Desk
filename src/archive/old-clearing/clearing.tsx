@@ -39,7 +39,7 @@ export const Route = createFileRoute("/_authenticated/clearing")({
   }),
   head: () => ({
     meta: [
-      { title: "Payment Clearing — CA PracticeDesk" },
+      { title: "Payment Clearing — AJ's Chartered Desk" },
       {
         name: "description",
         content:

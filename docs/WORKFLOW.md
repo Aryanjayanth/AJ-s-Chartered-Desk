@@ -1,4 +1,4 @@
-# PracticeDesk — Complete Guide
+# AJ's Chartered Desk — Complete Guide
 
 CA practice management & billing for multiple firms. Indian ₹ formatting, DD-MM-YYYY dates.
 

@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/payments")({
   head: () => ({
     meta: [
-      { title: "Payments — CA PracticeDesk" },
+      { title: "Payments — AJ's Chartered Desk" },
       { name: "description", content: "Record client payments, advances, and collections." },
     ],
   }),

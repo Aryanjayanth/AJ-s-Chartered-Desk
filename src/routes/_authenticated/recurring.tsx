@@ -26,7 +26,7 @@ import { errMsg, fmtDate, FREQS, inr, today } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/recurring")({
   head: () => ({
     meta: [
-      { title: "Recurring Jobs — CA PracticeDesk" },
+      { title: "Recurring Jobs — AJ's Chartered Desk" },
       { name: "description", content: "Client retainer schedules and automated job generation." },
     ],
   }),

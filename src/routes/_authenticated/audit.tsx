@@ -12,7 +12,7 @@ import { fmtDateTime, label } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/audit")({
   head: () => ({
     meta: [
-      { title: "Audit Trail — CA PracticeDesk" },
+      { title: "Audit Trail — AJ's Chartered Desk" },
       { name: "description", content: "Every important change, recorded." },
     ],
   }),

@@ -97,7 +97,7 @@ export function InviteDialog({
 
   const copyFullMessage = () => {
     const inviteUrl = createdLink || `${window.location.origin}/set-password`;
-    const message = `Hello! You have been invited to CA PracticeDesk for ${targetFirmName}.\n\nYour 6-digit OTP code is: ${createdOtp || "N/A"}\n\nActivate your account and set your password here:\n${inviteUrl}`;
+    const message = `Hello! You have been invited to AJ's Chartered Desk for ${targetFirmName}.\n\nYour 6-digit OTP code is: ${createdOtp || "N/A"}\n\nActivate your account and set your password here:\n${inviteUrl}`;
     navigator.clipboard.writeText(message);
     setCopiedMsg(true);
     toast.success("Complete invitation message copied (ready for WhatsApp / SMS)!");

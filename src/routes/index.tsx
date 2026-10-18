@@ -5,16 +5,15 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CA PracticeDesk — Practice Management & Billing" },
+      { title: "AJ's Chartered Desk — Practice Management & Billing" },
       {
         name: "description",
-        content:
-          "Practice management and billing software for Chartered Accountants by Aryan Jayanth.",
+        content: "The smarter workspace for Chartered Accountants.",
       },
-      { property: "og:title", content: "CA PracticeDesk — Practice Management & Billing" },
+      { property: "og:title", content: "AJ's Chartered Desk — Practice Management & Billing" },
       {
         property: "og:description",
-        content: "Practice management and billing software for Chartered Accountants.",
+        content: "The smarter workspace for Chartered Accountants.",
       },
     ],
   }),

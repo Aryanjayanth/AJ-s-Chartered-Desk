@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — CA PracticeDesk" },
+      { title: "Dashboard — AJ's Chartered Desk" },
       { name: "description", content: "Firm overview." },
     ],
   }),
@@ -125,7 +125,7 @@ function Dashboard() {
   }, [daysLimit]);
 
   // Filter entities according to stock-market range selector
-  const allJobs = d?.jobs ?? [];
+  const allJobs = useMemo(() => d?.jobs ?? [], [d?.jobs]);
   const jobs = useMemo(() => {
     if (!cutoffDate) return allJobs;
     return allJobs.filter((j) => (j.created_at ? j.created_at.slice(0, 10) >= cutoffDate : true));
@@ -133,7 +133,7 @@ function Dashboard() {
 
   const js = (s: string) => jobs.filter((x) => jobDisplayStatus(x) === s).length;
 
-  const allInvoices = d?.invoices ?? [];
+  const allInvoices = useMemo(() => d?.invoices ?? [], [d?.invoices]);
   const openInv = useMemo(() => {
     return allInvoices.filter((x) => {
       if (x.status === "cancelled" || x.status === "draft") return false;
@@ -145,7 +145,7 @@ function Dashboard() {
     });
   }, [allInvoices, cutoffDate]);
 
-  const allPayments = d?.payments ?? [];
+  const allPayments = useMemo(() => d?.payments ?? [], [d?.payments]);
   const live = useMemo(() => {
     return allPayments.filter((x) => {
       if (x.status === "reversed") return false;
@@ -270,10 +270,15 @@ function Dashboard() {
         <StatCard label="Pending Jobs" value={js("pending") + js("in_progress")} tone="warning" />
         <StatCard label="Completed Jobs" value={js("completed")} tone="success" />
         <StatCard label="Overdue Jobs" value={js("overdue")} tone="danger" />
+        <StatCard
+          label="Overdue Invoices"
+          value={openInv.filter((x) => invoiceDisplayStatus(x) === "overdue").length}
+          tone="danger"
+        />
         <StatCard label="Total Invoiced" value={inr(totalInvoiced)} tone="info" />
         <StatCard label="Total Collected" value={inr(collected)} tone="success" />
         <StatCard
-          label="Total Outstanding"
+          label="Outstanding Receivables"
           value={inr(outstanding)}
           tone="danger"
           hint={`${openInv.filter((x) => invoiceDisplayStatus(x) === "overdue").length} overdue in period`}

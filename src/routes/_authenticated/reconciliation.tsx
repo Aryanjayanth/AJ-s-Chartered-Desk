@@ -14,7 +14,7 @@ import { daysBetween, errMsg, fmtDate, inr, MODES } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/reconciliation")({
   head: () => ({
     meta: [
-      { title: "Reconciliation — CA PracticeDesk" },
+      { title: "Reconciliation — AJ's Chartered Desk" },
       { name: "description", content: "Bank and cash reconciliation." },
     ],
   }),

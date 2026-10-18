@@ -35,7 +35,7 @@ import { errMsg } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/import-export")({
   head: () => ({
     meta: [
-      { title: "Import / Export — CA PracticeDesk" },
+      { title: "Import / Export — AJ's Chartered Desk" },
       { name: "description", content: "Bulk import and export of practice data." },
     ],
   }),
@@ -111,17 +111,17 @@ function ExportPanel() {
       const stamp = new Date().toISOString().slice(0, 10);
       if (format === "csv" && sheets.length === 1) {
         const s = sheets[0];
-        downloadCsv(`practicedesk_${chosen[0].key}_${stamp}.csv`, s.header, s.rows);
+        downloadCsv(`AJ's Chartered Desk_${chosen[0].key}_${stamp}.csv`, s.header, s.rows);
       } else if (format === "csv") {
         // Several entities in one CSV is ambiguous, so fall back to a workbook.
         await downloadXlsx(
-          `practicedesk_export_${stamp}.xlsx`,
+          `AJ's Chartered Desk_export_${stamp}.xlsx`,
           sheets.map((s) => ({ ...s, name: s.name || "Data" })),
         );
         toast.info("Multiple entities export as a single Excel workbook, one sheet each.");
       } else {
         await downloadXlsx(
-          `practicedesk_export_${stamp}.xlsx`,
+          `AJ's Chartered Desk_export_${stamp}.xlsx`,
           sheets.map((s) => ({ ...s, name: s.name || "Data" })),
         );
       }

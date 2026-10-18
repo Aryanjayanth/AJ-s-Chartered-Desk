@@ -46,7 +46,7 @@ import { downloadCsv, fmtDate } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/clients/")({
   head: () => ({
     meta: [
-      { title: "Clients — CA PracticeDesk" },
+      { title: "Clients — AJ's Chartered Desk" },
       { name: "description", content: "Client master." },
     ],
   }),

@@ -106,8 +106,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
   });
 
   const selectedClient = clientDetailsQuery.data;
-  const availableServices = servicesQuery.data ?? [];
-  const clientServices = clientServicesQuery.data ?? [];
+  const availableServices = useMemo(() => servicesQuery.data ?? [], [servicesQuery.data]);
+  const clientServices = useMemo(() => clientServicesQuery.data ?? [], [clientServicesQuery.data]);
 
   // Group services by type for quick organized selection (GST Registration -> GST, TDS/Tax Audit -> Income Tax)
   const serviceGroups = useMemo(() => {

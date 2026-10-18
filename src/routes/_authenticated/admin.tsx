@@ -44,7 +44,7 @@ import { errMsg, fmtDate, inr } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      { title: "Firms Console — CA PracticeDesk" },
+      { title: "Firms Console — AJ's Chartered Desk" },
       { name: "description", content: "Manage all firms on the platform." },
     ],
   }),
@@ -411,7 +411,7 @@ function NewFirmDialog({
   const copyFullMessage = () => {
     if (!createdResult) return;
     const inviteUrl = createdResult.link || `${window.location.origin}/set-password`;
-    const message = `Hello! You have been invited as Owner to CA PracticeDesk for ${createdResult.firmName}.\n\nYour 6-digit OTP code is: ${createdResult.otpCode || "N/A"}\n\nActivate your account and set your password here:\n${inviteUrl}`;
+    const message = `Hello! You have been invited as Owner to AJ's Chartered Desk for ${createdResult.firmName}.\n\nYour 6-digit OTP code is: ${createdResult.otpCode || "N/A"}\n\nActivate your account and set your password here:\n${inviteUrl}`;
     navigator.clipboard.writeText(message);
     setCopiedMsg(true);
     toast.success("Complete invitation message copied (ready for WhatsApp / SMS)!");

@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
     meta: [
-      { title: "Tasks & Subtasks — CA PracticeDesk" },
+      { title: "Tasks & Subtasks — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Actionable checklist subtasks and compliance workflow tracking.",
@@ -159,7 +159,7 @@ function TasksPage() {
     },
   });
 
-  const jobsList = jobsQuery.data ?? [];
+  const jobsList = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
 
   // Flattened Subtasks list extracted from all jobs
   const subtasksList = useMemo<SubtaskRow[]>(() => {

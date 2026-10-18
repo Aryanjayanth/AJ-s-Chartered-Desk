@@ -9,7 +9,7 @@ import { fmtDate, inr, invoiceDisplayStatus, jobDisplayStatus } from "@/lib/form
 export const Route = createFileRoute("/_authenticated/exceptions")({
   head: () => ({
     meta: [
-      { title: "Exceptions — CA PracticeDesk" },
+      { title: "Exceptions — AJ's Chartered Desk" },
       { name: "description", content: "Items needing attention." },
     ],
   }),

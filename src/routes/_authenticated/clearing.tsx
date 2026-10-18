@@ -67,7 +67,7 @@ export const Route = createFileRoute("/_authenticated/clearing")({
   }),
   head: () => ({
     meta: [
-      { title: "Payment Clearing — CA PracticeDesk" },
+      { title: "Payment Clearing — AJ's Chartered Desk" },
       {
         name: "description",
         content:
@@ -132,6 +132,7 @@ const PAYMENT_MODES = [
 ];
 
 function ClearingDeskPage() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { canCreate, canEdit } = usePermissions();
 
@@ -246,9 +247,9 @@ function ClearingDeskPage() {
     },
   });
 
-  const allPayments = paymentsQuery.data ?? [];
-  const allJobs = jobsQuery.data ?? [];
-  const allExpenses = expensesQuery.data ?? [];
+  const allPayments = useMemo(() => paymentsQuery.data ?? [], [paymentsQuery.data]);
+  const allJobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
+  const allExpenses = useMemo(() => expensesQuery.data ?? [], [expensesQuery.data]);
 
   // Filtered Payments for main table
   const filteredPayments = useMemo(() => {
@@ -533,22 +534,19 @@ function ClearingDeskPage() {
       });
 
       toast.dismiss(toastId);
-      toast.success(
-        `Successfully allocated ${inr(res.allocatedTotal)} from ${allocatingPayment.payment_code}!`,
-        {
-          description:
-            res.remainingBalance > 0
-              ? `Remaining credit balance: ${inr(res.remainingBalance)}. Ready for subsequent clearing.`
-              : "Payment is now fully allocated and cleared.",
-        },
-      );
+      toast.success("Payment cleared successfully.", {
+        description:
+          res.remainingBalance > 0
+            ? `Remaining credit balance: ${inr(res.remainingBalance)}.`
+            : "Payment is now fully allocated and cleared.",
+      });
 
       setAllocatingPayment(null);
       setJobAllocations({});
       setExpenseAllocations({});
 
-      // Invalidate queries to refresh live data
-      await Promise.all([
+      // Invalidate queries to refresh live data (non-blocking)
+      void Promise.all([
         qc.invalidateQueries({ queryKey: ["clearing-payments-list"] }),
         qc.invalidateQueries({ queryKey: ["clearing-jobs-list"] }),
         qc.invalidateQueries({ queryKey: ["clearing-expenses-list"] }),
@@ -556,6 +554,8 @@ function ClearingDeskPage() {
         qc.invalidateQueries({ queryKey: ["invoices"] }),
         qc.invalidateQueries({ queryKey: ["payments"] }),
       ]);
+
+      navigate({ to: "/payments" });
     } catch (err: any) {
       toast.dismiss(toastId);
       toast.error(errMsg(err));

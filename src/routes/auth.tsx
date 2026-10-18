@@ -19,12 +19,12 @@ import { LuminousMesh } from "@/components/app/LuminousMesh";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Sign in — CA PracticeDesk" },
+      { title: "Sign in — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Practice management and billing for Chartered Accountants by Aryan Jayanth.",
       },
-      { property: "og:title", content: "Sign in — CA PracticeDesk" },
+      { property: "og:title", content: "Sign in — AJ's Chartered Desk" },
       {
         property: "og:description",
         content: "Practice management and billing for Chartered Accountants.",
@@ -90,9 +90,9 @@ function AuthPage() {
 
         {/* Brand Header with Uploaded Logo */}
         <div className="relative z-10 flex items-center gap-3.5">
-          <img src="/logo.png" alt="CA PracticeDesk" className="h-11 w-auto object-contain" />
+          <img src="/logo.png" alt="AJ's Chartered Desk" className="h-11 w-auto object-contain" />
           <div>
-            <div className="text-xl font-bold tracking-tight text-white">CA PracticeDesk</div>
+            <div className="text-xl font-bold tracking-tight text-white">AJ's Chartered Desk</div>
             <div className="text-xs font-medium tracking-wide text-slate-400">by Aryan Jayanth</div>
           </div>
         </div>
@@ -149,7 +149,7 @@ function AuthPage() {
               <div className="mb-7 flex flex-col items-center text-center">
                 <img
                   src="/logo.png"
-                  alt="CA PracticeDesk Logo"
+                  alt="AJ's Chartered Desk Logo"
                   className="mb-3.5 h-16 w-auto object-contain"
                 />
                 <h2 className="text-2xl font-bold tracking-tight text-white">Welcome back</h2>

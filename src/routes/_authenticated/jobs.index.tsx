@@ -61,7 +61,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/jobs/")({
   head: () => ({
     meta: [
-      { title: "Jobs — CA PracticeDesk" },
+      { title: "Jobs — AJ's Chartered Desk" },
       { name: "description", content: "Job work management." },
     ],
   }),
@@ -194,7 +194,7 @@ function JobsPage() {
         };
       }),
   });
-  const all = q.data ?? [];
+  const all = useMemo(() => q.data ?? [], [q.data]);
   const clients = [...new Map(all.map((j) => [j.client_id, j.client_name])).entries()];
   const services = [...new Map(all.map((j) => [j.service_id, j.service_name])).entries()];
   const uniqueCompanies = useMemo(() => {

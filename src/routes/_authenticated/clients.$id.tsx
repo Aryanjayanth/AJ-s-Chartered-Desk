@@ -41,7 +41,7 @@ import {
 export const Route = createFileRoute("/_authenticated/clients/$id")({
   head: () => ({
     meta: [
-      { title: "Client Profile — CA PracticeDesk" },
+      { title: "Client Profile — AJ's Chartered Desk" },
       { name: "description", content: "Client 360° profile." },
     ],
   }),

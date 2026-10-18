@@ -1,7 +1,7 @@
 -- ========================================================
--- CA PracticeDesk: Complete Database Schema & Migrations
+-- AJ's Chartered Desk: Complete Database Schema & Migrations
 -- ========================================================
--- PracticeDesk full backend (schema, security rules, functions, triggers, demo data)
+-- AJ's Chartered Desk full backend (schema, security rules, functions, triggers, demo data)
 -- Run in order on a fresh Postgres/Supabase database.
 
 -- ===== supabase/migrations/20261001094459_4f8ffcda-6ba3-49e4-9bb1-93664b8100cc.sql =====

@@ -1,7 +1,7 @@
 {
-  "name": "practicedesk",
+  "name": "AJ's Chartered Desk",
   "version": "1.0.0",
-  "description": "PracticeDesk — CA Practice Management & Billing Platform by Aryan Jayanth",
+  "description": "AJ's Chartered Desk — The smarter workspace for Chartered Accountants",
   "author": "Aryan Jayanth <sankaaryanjayanth@gmail.com>",
   "license": "MIT",
   "private": true,

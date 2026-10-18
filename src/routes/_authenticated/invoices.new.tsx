@@ -26,7 +26,7 @@ import { isWorkflow, type JobWorkflow } from "@/lib/job-workflow";
 export const Route = createFileRoute("/_authenticated/invoices/new")({
   head: () => ({
     meta: [
-      { title: "Create Invoice — CA PracticeDesk" },
+      { title: "Create Invoice — AJ's Chartered Desk" },
       {
         name: "description",
         content: "Raise an invoice for a job whose payment has been squared off.",

@@ -30,7 +30,7 @@ import {
 export const Route = createFileRoute("/_authenticated/outstanding")({
   head: () => ({
     meta: [
-      { title: "Outstanding — CA PracticeDesk" },
+      { title: "Outstanding — AJ's Chartered Desk" },
       { name: "description", content: "Receivables outstanding." },
     ],
   }),

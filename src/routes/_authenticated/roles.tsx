@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/roles")({
   head: () => ({
     meta: [
-      { title: "Roles & Permissions — CA PracticeDesk" },
+      { title: "Roles & Permissions — AJ's Chartered Desk" },
       { name: "description", content: "Decide what Staff and Cashier can do in each module." },
     ],
   }),

@@ -19,7 +19,7 @@ import { generateLoginLink } from "@/lib/firms.functions";
 export const Route = createFileRoute("/_authenticated/users")({
   head: () => ({
     meta: [
-      { title: "Users — CA PracticeDesk" },
+      { title: "Users — AJ's Chartered Desk" },
       { name: "description", content: "Manage team members and roles." },
     ],
   }),

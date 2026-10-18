@@ -90,15 +90,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "CA PracticeDesk — Practice Management & Billing" },
+      { title: "AJ's Chartered Desk — Practice Management & Billing" },
       {
         name: "description",
-        content: "Clients, jobs, invoices, payments, clearing and receivables for CA firms.",
+        content: "The smarter workspace for Chartered Accountants.",
       },
-      { property: "og:title", content: "CA PracticeDesk — Practice Management & Billing" },
+      { property: "og:title", content: "AJ's Chartered Desk — Practice Management & Billing" },
       {
         property: "og:description",
-        content: "Clients, jobs, invoices, payments, clearing and receivables for CA firms.",
+        content: "The smarter workspace for Chartered Accountants.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

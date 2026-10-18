@@ -1,9 +1,9 @@
-# PracticeDesk
+# AJ's Chartered Desk
 
 > **CA Practice Management, Compliance & Billing Platform**  
 > Developed by **Aryan Jayanth** (`sankaaryanjayanth@gmail.com`)
 
-PracticeDesk is an enterprise-grade multi-tenant practice management, compliance automation, and billing platform engineered specifically for Chartered Accountant (CA) firms, tax practitioners, and audit firms in India.
+AJ's Chartered Desk is the smarter workspace for Chartered Accountants — an enterprise-grade multi-tenant practice management, compliance automation, and billing platform engineered specifically for Chartered Accountant (CA) firms, tax practitioners, and audit firms in India.
 
 It features native Indian compliance workflows including Indian currency formatting (`₹`), date formatting (`DD-MM-YYYY`), PAN/TAN/GSTIN validation, GST computation with SAC codes, multi-firm data isolation via PostgreSQL Row Level Security (RLS), and comprehensive financial audit trails.
 

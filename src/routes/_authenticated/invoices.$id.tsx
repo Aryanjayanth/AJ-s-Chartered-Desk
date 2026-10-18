@@ -23,7 +23,7 @@ import { errMsg, fmtDate, inr, invoiceDisplayStatus, MODES } from "@/lib/format"
 export const Route = createFileRoute("/_authenticated/invoices/$id")({
   head: () => ({
     meta: [
-      { title: "Invoice — CA PracticeDesk" },
+      { title: "Invoice — AJ's Chartered Desk" },
       { name: "description", content: "Invoice preview." },
     ],
   }),

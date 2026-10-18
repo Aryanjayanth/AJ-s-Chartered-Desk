@@ -11,7 +11,7 @@ import { daysBetween, fmtDate, inr, MODES } from "@/lib/format";
 export const Route = createFileRoute("/_authenticated/unallocated")({
   head: () => ({
     meta: [
-      { title: "Unallocated Payments — CA PracticeDesk" },
+      { title: "Unallocated Payments — AJ's Chartered Desk" },
       { name: "description", content: "Payments not yet cleared." },
     ],
   }),

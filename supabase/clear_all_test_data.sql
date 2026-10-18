@@ -1,5 +1,5 @@
 -- ==============================================================================
--- CA PracticeDesk — Safe Reset / Clear All Test Data Script
+-- AJ's Chartered Desk — Safe Reset / Clear All Test Data Script
 -- Preserves: Super Admin (platform_admins), Firms, Users, Roles & Permissions, Master Services
 -- Wipes: All test clients, jobs, payments, invoices, expenses & transactional ledger
 -- ==============================================================================
