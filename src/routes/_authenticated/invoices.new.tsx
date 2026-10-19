@@ -42,7 +42,7 @@ export const Route = createFileRoute("/_authenticated/invoices/new")({
  * guaranteed to pass -- and anything not listed is blocked at the database even
  * if someone reaches it by URL.
  */
-type Candidate = { job: JobWorkflow; jobCode: string; title: string; status: string };
+type Candidate = { job: JobWorkflow; jobCode: string; title: string; status: string; clientId?: string };
 
 function NewInvoicePage() {
   const { isFinance, loading } = useRoles();
@@ -83,7 +83,7 @@ function NewInvoicePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("id,job_code,title,status")
+        .select("id,job_code,title,status,client_id")
         .neq("status", "cancelled")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -97,6 +97,7 @@ function NewInvoicePage() {
             jobCode: j.job_code,
             title: j.title,
             status: j.status,
+            clientId: j.client_id,
           });
         }
       }
@@ -266,6 +267,7 @@ function NewInvoicePage() {
                         onClick={() =>
                           navigate({
                             to: "/clearing",
+                            search: { client: c.clientId, job: c.job.job_id },
                           })
                         }
                       >

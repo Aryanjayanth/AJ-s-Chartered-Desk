@@ -758,6 +758,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
       clientId: z.string().uuid(),
+      jobId: z.string().uuid().nullable().optional(),
       amount: z.number().positive("Amount must be greater than zero"),
       paymentDate: z.string().min(1),
       mode: z.string().default("bank"),
@@ -801,7 +802,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
       .insert({
         firm_id: client.firm_id,
         client_id: data.clientId,
-        job_id: null,
+        job_id: data.jobId || null,
         amount: data.amount,
         allocated_amount: 0,
         payment_date: data.paymentDate,
@@ -810,7 +811,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
         status: "unallocated",
         created_by: context.userId || null,
       })
-      .select("id, payment_code, amount")
+      .select("id, payment_code, amount, job_id")
       .single();
 
     if (error) throw new Error(error.message);
@@ -942,8 +943,11 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         continue;
       }
 
-      // Check if job already has an invoice
-      const existingInv = (job.invoice_items as any[])?.[0]?.invoices;
+      // Check if job already has an active invoice (ignoring cancelled ones)
+      const activeInvs = (job.invoice_items as any[])
+        ?.map((it: any) => it.invoices)
+        ?.filter((inv: any) => inv && inv.status !== "cancelled");
+      const existingInv = activeInvs?.[0];
       let invoiceId: string | null = existingInv?.id ?? null;
 
       if (!invoiceId) {
@@ -983,6 +987,14 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         });
 
         await supabaseAdmin.from("jobs").update({ financial_status: "invoiced" }).eq("id", job.id);
+      }
+
+      // If the payment didn't have a linked job_id yet and was allocated here, link it
+      if (!pay.job_id) {
+        await supabaseAdmin
+          .from("payments")
+          .update({ job_id: job.id })
+          .eq("id", pay.id);
       }
 
       // Allocate payment amount to invoice
@@ -1026,6 +1038,22 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
                 discount: jAlloc.discount || 0,
                 final_amount: 0,
                 notes: "Manually allocated & cleared from Payment Desk",
+              },
+              { onConflict: "job_id" },
+            );
+          } else {
+            // Partially cleared: register clearing record so invoice generation and workflow recognise it
+            await supabaseAdmin.from("job_clearing").upsert(
+              {
+                job_id: job.id,
+                firm_id: job.firm_id,
+                status: "cleared",
+                cleared_at: new Date().toISOString(),
+                cleared_by: userId,
+                advance: Number(invRow.amount_paid || 0),
+                discount: jAlloc.discount || 0,
+                final_amount: Math.max(0, Number(invRow.total || 0) - Number(invRow.amount_paid || 0)),
+                notes: "Partially allocated & cleared from Payment Desk",
               },
               { onConflict: "job_id" },
             );

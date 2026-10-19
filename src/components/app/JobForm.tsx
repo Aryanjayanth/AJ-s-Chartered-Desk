@@ -472,7 +472,14 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 created_by: currentUserId,
               };
               if (activeFirmId) payPayload.firm_id = activeFirmId;
-              await supabase.from("payments").insert(payPayload);
+              const { error: payErr } = await supabase.from("payments").insert(payPayload);
+              if (payErr) {
+                console.warn(
+                  "Could not record advance payment receipt for job",
+                  currentJob.id,
+                  payErr,
+                );
+              }
             } catch (payErr) {
               console.warn(
                 "Could not record advance payment receipt for job",

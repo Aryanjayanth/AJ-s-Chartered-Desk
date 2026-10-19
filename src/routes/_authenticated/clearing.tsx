@@ -61,9 +61,10 @@ import {
 
 export const Route = createFileRoute("/_authenticated/clearing")({
   ssr: false,
-  validateSearch: (s: Record<string, unknown>): { client?: string; payment?: string } => ({
+  validateSearch: (s: Record<string, unknown>): { client?: string; payment?: string; job?: string } => ({
     client: typeof s.client === "string" ? s.client : undefined,
     payment: typeof s.payment === "string" ? s.payment : undefined,
+    job: typeof s.job === "string" ? s.job : undefined,
   }),
   head: () => ({
     meta: [
@@ -85,6 +86,9 @@ interface PaymentRow {
   client_name: string;
   client_code: string;
   client_mobile?: string | null;
+  job_id?: string | null;
+  job_code?: string | null;
+  job_title?: string | null;
   amount: number;
   allocated_amount: number;
   available_amount: number;
@@ -92,6 +96,13 @@ interface PaymentRow {
   mode: string;
   status: string;
   narration: string | null;
+  cleared_jobs?: {
+    job_id?: string;
+    job_code?: string;
+    title?: string;
+    allocated_amount: number;
+    invoice_no?: string;
+  }[];
 }
 
 interface ClientJob {
@@ -133,6 +144,7 @@ const PAYMENT_MODES = [
 
 function ClearingDeskPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const qc = useQueryClient();
   const { canCreate, canEdit } = usePermissions();
 
@@ -140,14 +152,15 @@ function ClearingDeskPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "available" | "partial" | "cleared">(
     "available",
   );
-  const [clientFilter, setClientFilter] = useState<string>("");
+  const [clientFilter, setClientFilter] = useState<string>(search.client ?? "");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
   // Record Payment Modal state
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
   const [recordForm, setRecordForm] = useState({
-    clientId: "",
+    clientId: search.client ?? "",
+    jobId: search.job ?? "",
     amount: "",
     paymentDate: today(),
     mode: "bank",
@@ -165,14 +178,20 @@ function ClearingDeskPage() {
   >({});
   const [isAllocating, setIsAllocating] = useState(false);
 
-  // 1. Fetch All Payments
+  // 1. Fetch All Payments (including linked job and cleared jobs from allocations)
   const paymentsQuery = useQuery({
     queryKey: ["clearing-payments-list"],
     queryFn: async (): Promise<PaymentRow[]> => {
       const { data, error } = await supabase
         .from("payments")
         .select(
-          "id, payment_code, client_id, amount, allocated_amount, payment_date, mode, status, narration, clients(id, name, client_code, mobile)",
+          `id, payment_code, client_id, job_id, amount, allocated_amount, payment_date, mode, status, narration,
+           clients(id, name, client_code, mobile),
+           jobs:job_id(id, job_code, title),
+           payment_allocations(
+             amount,
+             invoices(id, invoice_no, job_id, jobs:job_id(id, job_code, title))
+           )`,
         )
         .order("payment_date", { ascending: false });
 
@@ -182,6 +201,28 @@ function ClearingDeskPage() {
         const amt = Number(p.amount || 0);
         const alloc = Number(p.allocated_amount || 0);
         const avail = Math.max(0, amt - alloc);
+
+        const clearedList: {
+          job_id?: string;
+          job_code?: string;
+          title?: string;
+          allocated_amount: number;
+          invoice_no?: string;
+        }[] = [];
+
+        (p.payment_allocations ?? []).forEach((pa: any) => {
+          const inv = pa.invoices;
+          if (inv?.jobs) {
+            clearedList.push({
+              job_id: inv.jobs.id,
+              job_code: inv.jobs.job_code,
+              title: inv.jobs.title,
+              allocated_amount: Number(pa.amount || 0),
+              invoice_no: inv.invoice_no,
+            });
+          }
+        });
+
         return {
           id: p.id,
           payment_code: p.payment_code ?? "—",
@@ -189,6 +230,9 @@ function ClearingDeskPage() {
           client_name: p.clients?.name ?? "Unknown Client",
           client_code: p.clients?.client_code ?? "",
           client_mobile: p.clients?.mobile ?? null,
+          job_id: p.job_id ?? null,
+          job_code: p.jobs?.job_code ?? null,
+          job_title: p.jobs?.title ?? null,
           amount: amt,
           allocated_amount: alloc,
           available_amount: avail,
@@ -196,6 +240,7 @@ function ClearingDeskPage() {
           mode: p.mode ?? "bank",
           status: p.status ?? "unallocated",
           narration: p.narration ?? null,
+          cleared_jobs: clearedList,
         };
       });
     },
@@ -285,12 +330,55 @@ function ClearingDeskPage() {
   }, [allExpenses]);
 
   // Open Allocation Workspace in Complete Window
-  const handleOpenAllocation = (payment: PaymentRow) => {
+  const handleOpenAllocation = (payment: PaymentRow, targetJobId?: string) => {
     setAllocatingPayment(payment);
-    setJobAllocations({});
+    const initialJobAllocs: Record<string, { amount: number; discount: number }> = {};
+
+    const targetId = targetJobId || payment.job_id || search.job;
+    const clientJobs = allJobs.filter(
+      (j) => j.client_id === payment.client_id && j.financial_status !== "closed",
+    );
+
+    if (targetId) {
+      const targetJob = clientJobs.find((j) => j.id === targetId);
+      if (targetJob && payment.available_amount > 0) {
+        initialJobAllocs[targetJob.id] = {
+          amount: Math.min(payment.available_amount, targetJob.net_amount),
+          discount: 0,
+        };
+      }
+    } else if (clientJobs.length === 1 && payment.available_amount > 0) {
+      const singleJob = clientJobs[0];
+      initialJobAllocs[singleJob.id] = {
+        amount: Math.min(payment.available_amount, singleJob.net_amount),
+        discount: 0,
+      };
+    }
+
+    setJobAllocations(initialJobAllocs);
     setExpenseAllocations({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // URL deep-linking (?payment=... or ?job=... or ?client=...)
+  useEffect(() => {
+    if (!allPayments.length) return;
+    if (search.payment) {
+      const match = allPayments.find((p) => p.id === search.payment);
+      if (match && (!allocatingPayment || allocatingPayment.id !== match.id)) {
+        handleOpenAllocation(match, search.job);
+      }
+    } else if (search.job) {
+      const match = allPayments.find(
+        (p) =>
+          (p.job_id === search.job || (search.client && p.client_id === search.client)) &&
+          p.available_amount > 0,
+      );
+      if (match && (!allocatingPayment || allocatingPayment.id !== match.id)) {
+        handleOpenAllocation(match, search.job);
+      }
+    }
+  }, [search.payment, search.job, search.client, allPayments]);
 
   // Jobs needing payment for the selected client in the allocation workspace
   const clientJobsToPay = useMemo(() => {
@@ -303,11 +391,50 @@ function ClearingDeskPage() {
   // Expenses needing payment for the selected client in the allocation workspace
   const clientExpensesToPay = useMemo(() => {
     if (!allocatingPayment) return [];
-    // Show all client reimbursable expenses, whether linked to a job or direct outlay
     return allExpenses.filter(
       (e) => e.client_id === allocatingPayment.client_id && !e.notes?.includes("Cleared in"),
     );
   }, [allocatingPayment, allExpenses]);
+
+  // Auto-fill all open dues up to available balance
+  const handleAutoAllocateAll = () => {
+    if (!allocatingPayment || paymentAvailable <= 0) return;
+    let rem = paymentAvailable;
+    const nextJobAllocs: Record<string, { amount: number; discount: number }> = {};
+    const nextExpAllocs: Record<string, { amount: number; discount: number }> = {};
+
+    if (allocatingPayment.job_id) {
+      const linked = clientJobsToPay.find((j) => j.id === allocatingPayment.job_id);
+      if (linked && rem > 0) {
+        const amt = Math.min(rem, linked.net_amount);
+        nextJobAllocs[linked.id] = { amount: amt, discount: 0 };
+        rem -= amt;
+      }
+    }
+
+    for (const job of clientJobsToPay) {
+      if (job.id === allocatingPayment.job_id) continue;
+      if (rem <= 0) break;
+      const amt = Math.min(rem, job.net_amount);
+      if (amt > 0) {
+        nextJobAllocs[job.id] = { amount: amt, discount: 0 };
+        rem -= amt;
+      }
+    }
+
+    for (const exp of clientExpensesToPay) {
+      if (rem <= 0) break;
+      const amt = Math.min(rem, exp.amount);
+      if (amt > 0) {
+        nextExpAllocs[exp.id] = { amount: amt, discount: 0 };
+        rem -= amt;
+      }
+    }
+
+    setJobAllocations(nextJobAllocs);
+    setExpenseAllocations(nextExpAllocs);
+    toast.success("Auto-filled available payment balance across open dues");
+  };
 
   // Live calculation of manual allocations
   const currentLiveJobAllocTotal = useMemo(() => {
@@ -448,27 +575,49 @@ function ClearingDeskPage() {
   // Save Manual Allocation
   const handleConfirmManualAllocation = async () => {
     if (!allocatingPayment) return;
-    const hasJobAction = Object.values(jobAllocations).some(
+
+    let targetJobAllocs = { ...jobAllocations };
+    let targetExpAllocs = { ...expenseAllocations };
+
+    let hasJobAction = Object.values(targetJobAllocs).some(
       (j) => (j.amount || 0) > 0 || (j.discount || 0) > 0,
     );
-    const hasExpAction = Object.values(expenseAllocations).some(
+    let hasExpAction = Object.values(targetExpAllocs).some(
       (e) => (e.amount || 0) > 0 || (e.discount || 0) > 0,
     );
+
+    // If nothing entered yet, auto-allocate available balance to target or first job
     if (!hasJobAction && !hasExpAction) {
-      toast.error(
-        "Please enter manual allocation amount(s) or discount(s) for at least one job or expense.",
-      );
-      return;
+      if (paymentAvailable > 0 && clientJobsToPay.length > 0) {
+        const target =
+          (allocatingPayment.job_id &&
+            clientJobsToPay.find((j) => j.id === allocatingPayment.job_id)) ||
+          clientJobsToPay[0];
+        const amt = Math.min(paymentAvailable, target.net_amount);
+        targetJobAllocs = { [target.id]: { amount: amt, discount: 0 } };
+        setJobAllocations(targetJobAllocs);
+        hasJobAction = true;
+      } else {
+        toast.error(
+          "Please enter manual allocation amount(s) or discount(s) for at least one job or expense.",
+        );
+        return;
+      }
     }
-    if (isOverallocated) {
+
+    const totalToAllocate =
+      Object.values(targetJobAllocs).reduce((sum, j) => sum + (Number(j.amount) || 0), 0) +
+      Object.values(targetExpAllocs).reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
+
+    if (totalToAllocate > paymentAvailable + 0.01) {
       toast.error(
-        `Total allocation (${inr(currentLiveTotalAllocated)}) exceeds available payment balance (${inr(paymentAvailable)})`,
+        `Total allocation (${inr(totalToAllocate)}) exceeds available payment balance (${inr(paymentAvailable)})`,
       );
       return;
     }
 
     // Validate that no expense allocation exceeds its actual outlay amount or net due
-    for (const [expId, item] of Object.entries(expenseAllocations)) {
+    for (const [expId, item] of Object.entries(targetExpAllocs)) {
       if ((item.amount || 0) <= 0 && (item.discount || 0) <= 0) continue;
       const exp = clientExpensesToPay.find((e) => e.id === expId);
       const maxExpDue = exp ? Math.max(0, exp.amount - (item.discount || 0)) : 0;
@@ -487,7 +636,7 @@ function ClearingDeskPage() {
     }
 
     // Validate that no job allocation exceeds its net due
-    for (const [jobId, item] of Object.entries(jobAllocations)) {
+    for (const [jobId, item] of Object.entries(targetJobAllocs)) {
       if ((item.amount || 0) <= 0 && (item.discount || 0) <= 0) continue;
       const job = clientJobsToPay.find((j) => j.id === jobId);
       const maxJobDue = job ? Math.max(0, job.net_amount - (item.discount || 0)) : 0;
@@ -509,7 +658,7 @@ function ClearingDeskPage() {
     const toastId = toast.loading("Processing manual allocation & clearing...");
 
     try {
-      const jAllocs = Object.entries(jobAllocations)
+      const jAllocs = Object.entries(targetJobAllocs)
         .filter(([_, v]) => (v.amount || 0) > 0 || (v.discount || 0) > 0)
         .map(([jobId, v]) => ({
           jobId,
@@ -517,7 +666,7 @@ function ClearingDeskPage() {
           discount: v.discount || 0,
         }));
 
-      const eAllocs = Object.entries(expenseAllocations)
+      const eAllocs = Object.entries(targetExpAllocs)
         .filter(([_, v]) => (v.amount || 0) > 0 || (v.discount || 0) > 0)
         .map(([expenseId, v]) => ({
           expenseId,
@@ -583,6 +732,7 @@ function ClearingDeskPage() {
       await recordPaymentEntry({
         data: {
           clientId: recordForm.clientId,
+          jobId: recordForm.jobId || null,
           amount: amt,
           paymentDate: recordForm.paymentDate,
           mode: recordForm.mode,
@@ -593,12 +743,15 @@ function ClearingDeskPage() {
 
       toast.dismiss(toastId);
       toast.success(`Payment of ${inr(amt)} recorded successfully!`, {
-        description: "Recorded in payment history ready for manual allocation.",
+        description: recordForm.jobId
+          ? "Recorded and linked to job ready for clearing."
+          : "Recorded in payment history ready for manual allocation.",
       });
 
       setIsRecordModalOpen(false);
       setRecordForm({
         clientId: "",
+        jobId: "",
         amount: "",
         paymentDate: today(),
         mode: "bank",
@@ -654,6 +807,11 @@ function ClearingDeskPage() {
                     {allocatingPayment.client_code}
                   </Badge>
                 )}
+                {allocatingPayment.job_code && (
+                  <Badge className="font-mono text-[10px] bg-primary/10 text-primary border-primary/30">
+                    Job: {allocatingPayment.job_code}
+                  </Badge>
+                )}
               </div>
               <div className="text-[11px] text-muted-foreground mt-0.5">
                 Receipt Date: {fmtDate(allocatingPayment.payment_date)} · Mode:{" "}
@@ -661,6 +819,7 @@ function ClearingDeskPage() {
                   {MODES[allocatingPayment.mode as keyof typeof MODES] ?? allocatingPayment.mode}
                 </span>
                 {allocatingPayment.narration ? ` · ${allocatingPayment.narration}` : ""}
+                {allocatingPayment.job_title ? ` · Created for: ${allocatingPayment.job_title}` : ""}
               </div>
             </div>
           </div>
@@ -679,10 +838,28 @@ function ClearingDeskPage() {
             >
               Cancel
             </Button>
+            {paymentAvailable > 0 &&
+              (clientJobsToPay.length > 0 || clientExpensesToPay.length > 0) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAutoAllocateAll}
+                  disabled={isAllocating}
+                  className="gap-1.5 text-xs font-semibold text-primary border-primary/30 hover:bg-primary/5 cursor-pointer"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  Quick Clear (Auto-Fill)
+                </Button>
+              )}
             <Button
               size="sm"
               onClick={handleConfirmManualAllocation}
-              disabled={isAllocating || isOverallocated || (!hasJobAction && !hasExpAction)}
+              disabled={
+                isAllocating ||
+                isOverallocated ||
+                (paymentAvailable <= 0 && currentLiveTotalAllocated <= 0)
+              }
               className="gap-1.5 font-semibold shadow-sm"
             >
               <Check className="h-4 w-4" />
@@ -690,7 +867,9 @@ function ClearingDeskPage() {
                 ? "Allocating…"
                 : currentLiveTotalAllocated > 0
                   ? `Confirm Allocation (${inr(currentLiveTotalAllocated)})`
-                  : "Confirm Clearing"}
+                  : paymentAvailable > 0 && clientJobsToPay.length > 0
+                    ? "Quick Clear All Due"
+                    : "Confirm Clearing"}
             </Button>
           </div>
         </div>
@@ -762,6 +941,42 @@ function ClearingDeskPage() {
           </div>
         </div>
 
+        {/* Previous Cleared History Card (if this payment already cleared jobs/invoices) */}
+        {allocatingPayment.cleared_jobs && allocatingPayment.cleared_jobs.length > 0 && (
+          <Card className="border border-emerald-500/30 bg-emerald-500/5 shadow-none">
+            <CardHeader className="py-2.5 px-4 border-b border-emerald-500/20">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <CardTitle className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                  Past Clearing History for this Payment ({allocatingPayment.cleared_jobs.length}{" "}
+                  allocation{allocatingPayment.cleared_jobs.length > 1 ? "s" : ""})
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 divide-y divide-emerald-500/10 text-xs">
+              {allocatingPayment.cleared_jobs.map((cj, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between py-1.5 first:pt-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                    <span className="text-foreground">{cj.title}</span>
+                    {cj.invoice_no && (
+                      <Badge variant="outline" className="font-mono text-[10px]">
+                        {cj.invoice_no}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    Cleared: {inr(cj.allocated_amount)}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {isOverallocated && (
           <div className="text-xs font-semibold text-destructive flex items-center gap-2 bg-destructive/10 border border-destructive/20 p-3 rounded-lg">
             <AlertCircle className="h-4 w-4 shrink-0" />
@@ -784,9 +999,23 @@ function ClearingDeskPage() {
                   Jobs Needing Payment ({clientJobsToPay.length})
                 </h2>
               </div>
-              <div className="text-xs font-mono font-medium text-muted-foreground">
-                Allocated to Jobs:{" "}
-                <span className="font-bold text-foreground">{inr(currentLiveJobAllocTotal)}</span>
+              <div className="flex items-center gap-3">
+                {paymentAvailable > 0 && clientJobsToPay.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleAutoAllocateAll}
+                    className="h-7 text-xs text-primary font-semibold hover:bg-primary/10 gap-1 cursor-pointer"
+                  >
+                    <Zap className="h-3 w-3" />
+                    Quick Auto-Fill
+                  </Button>
+                )}
+                <div className="text-xs font-mono font-medium text-muted-foreground">
+                  Allocated to Jobs:{" "}
+                  <span className="font-bold text-foreground">{inr(currentLiveJobAllocTotal)}</span>
+                </div>
               </div>
             </div>
 
@@ -817,6 +1046,11 @@ function ClearingDeskPage() {
                             <span className="font-mono text-xs font-bold text-primary">
                               {job.job_code}
                             </span>
+                            {allocatingPayment.job_id === job.id && (
+                              <Badge className="bg-primary text-primary-foreground text-[10px] font-semibold">
+                                Origin Job for Payment
+                              </Badge>
+                            )}
                             <Badge variant="secondary" className="text-[10px]">
                               {job.service_name}
                             </Badge>
@@ -1308,7 +1542,9 @@ function ClearingDeskPage() {
       <DataTable
         rows={filteredPayments}
         loading={paymentsQuery.isLoading}
-        search={(p) => `${p.payment_code} ${p.client_name} ${p.client_code} ${p.narration ?? ""}`}
+        search={(p) =>
+          `${p.payment_code} ${p.client_name} ${p.client_code} ${p.job_code ?? ""} ${p.job_title ?? ""} ${p.cleared_jobs?.map((c) => c.job_code).join(" ") ?? ""} ${p.narration ?? ""}`
+        }
         exportFilename="payment_clearing_history"
         onRowClick={(p) => handleOpenAllocation(p)}
         toolbar={
@@ -1407,6 +1643,48 @@ function ClearingDeskPage() {
             ),
           },
           {
+            key: "job",
+            header: "Origin Job / Cleared Against",
+            className: "min-w-[200px]",
+            sort: (p) => p.job_code ?? p.cleared_jobs?.[0]?.job_code ?? "",
+            render: (p) => (
+              <div className="space-y-1">
+                {p.job_code ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase font-semibold text-muted-foreground">
+                      For:
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[11px] font-bold text-primary bg-primary/5 border-primary/20"
+                      title={p.job_title ?? undefined}
+                    >
+                      {p.job_code}
+                    </Badge>
+                  </div>
+                ) : null}
+                {p.cleared_jobs && p.cleared_jobs.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {p.cleared_jobs.map((cj, i) => (
+                      <Badge
+                        key={i}
+                        variant="secondary"
+                        className="text-[10px] font-mono bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                        title={`${cj.job_code}: ${cj.title} (${inr(cj.allocated_amount)})`}
+                      >
+                        Cleared {cj.job_code} ({inr(cj.allocated_amount)})
+                      </Badge>
+                    ))}
+                  </div>
+                ) : !p.job_code ? (
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    General Advance
+                  </span>
+                ) : null}
+              </div>
+            ),
+          },
+          {
             key: "mode",
             header: "Mode",
             className: "w-28",
@@ -1490,7 +1768,7 @@ function ClearingDeskPage() {
           {
             key: "action",
             header: "",
-            className: "w-28 text-right",
+            className: "w-32 text-right",
             render: (p) => (
               <Button
                 size="sm"
@@ -1501,7 +1779,7 @@ function ClearingDeskPage() {
                   handleOpenAllocation(p);
                 }}
               >
-                {p.available_amount > 0 ? "Allocate" : "View"}
+                {p.available_amount > 0 ? "Clear / Allocate" : "View"}
               </Button>
             ),
           },
@@ -1526,10 +1804,42 @@ function ClearingDeskPage() {
             <Field label="Client *">
               <ClientSelect
                 value={recordForm.clientId}
-                onChange={(id) => setRecordForm((p) => ({ ...p, clientId: id }))}
+                onChange={(id) => setRecordForm((p) => ({ ...p, clientId: id, jobId: "" }))}
                 placeholder="Select client…"
               />
             </Field>
+
+            {recordForm.clientId && (
+              <Field label="Link to Job (Optional)">
+                <NativeSelect
+                  value={recordForm.jobId}
+                  onChange={(e) => {
+                    const selJobId = e.target.value;
+                    const selJob = allJobs.find((j) => j.id === selJobId);
+                    setRecordForm((p) => ({
+                      ...p,
+                      jobId: selJobId,
+                      amount: p.amount ? p.amount : selJob ? String(selJob.net_amount) : p.amount,
+                      narration:
+                        p.narration && p.narration !== "Advance Client Deposit"
+                          ? p.narration
+                          : selJob
+                            ? `Advance for ${selJob.job_code}`
+                            : p.narration,
+                    }));
+                  }}
+                >
+                  <option value="">General Client Deposit / Unlinked</option>
+                  {allJobs
+                    .filter((j) => j.client_id === recordForm.clientId)
+                    .map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.job_code} — {j.title} (Net Due: {inr(j.net_amount)})
+                      </option>
+                    ))}
+                </NativeSelect>
+              </Field>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Amount (₹) *">

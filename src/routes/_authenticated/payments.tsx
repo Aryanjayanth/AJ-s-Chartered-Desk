@@ -79,7 +79,7 @@ function PaymentsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("id,job_code,title,client_id,status,due_date")
+        .select("id,job_code,title,client_id,status,due_date,fee,discount,net_amount,services(name)")
         .neq("status", "cancelled")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -149,7 +149,7 @@ function PaymentsPage() {
     setPayBusy(true);
     const { error } = await supabase.from("payments").insert({
       client_id: payClientId,
-      job_id: null,
+      job_id: payForm.job_id || null,
       amount: amt,
       mode: payForm.mode,
       payment_date: payForm.payment_date,
@@ -160,7 +160,9 @@ function PaymentsPage() {
     setPayBusy(false);
     if (error) return toast.error(errMsg(error));
     toast.success("Payment recorded successfully", {
-      description: "Recorded as General Client Deposit Balance.",
+      description: payForm.job_id
+        ? "Recorded and linked to job. Ready for clearing."
+        : "Recorded as General Client Deposit Balance.",
       action: {
         label: "View History",
         onClick: () => setView("history"),
@@ -212,6 +214,38 @@ function PaymentsPage() {
               placeholder="Search and select client…"
             />
           </Field>
+
+          {payClientId && (
+            <Field label="Link to Job (Optional)">
+              <NativeSelect
+                value={payForm.job_id}
+                onChange={(e) => {
+                  const selJobId = e.target.value;
+                  const selJob = payClientJobs.find((j: any) => j.id === selJobId);
+                  setPayForm((prev) => ({
+                    ...prev,
+                    job_id: selJobId,
+                    amount: prev.amount
+                      ? prev.amount
+                      : (selJob ? String(selJob.net_amount || selJob.fee || "") : ""),
+                    narration: prev.narration
+                      ? prev.narration
+                      : (selJob ? `Advance payment for job ${selJob.job_code}` : ""),
+                  }));
+                }}
+              >
+                <option value="">General Client Deposit / Balance (No specific job)</option>
+                {payClientJobs.map((j: any) => (
+                  <option key={j.id} value={j.id}>
+                    {j.job_code} — {j.title} (Fee: {inr(j.net_amount || j.fee || 0)})
+                  </option>
+                ))}
+              </NativeSelect>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Linking to a job attributes this receipt to the job and allows 1-click clearing.
+              </p>
+            </Field>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Amount (₹) *">
@@ -370,15 +404,20 @@ function PaymentsPage() {
             },
             {
               key: "c",
-              header: "Client",
+              header: "Client / Job",
               render: (p) => (
-                <div className="flex flex-col">
+                <div className="flex flex-col gap-0.5">
                   <span className="font-semibold text-sm text-foreground">
                     {cname(p.client_id)}
                   </span>
-                  {jcode(p.job_id) && (
-                    <span className="text-[11px] font-mono text-muted-foreground">
-                      Job: {jcode(p.job_id)}
+                  {jcode(p.job_id) ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-primary">
+                      <span className="text-[10px] px-1 py-0.2 bg-primary/10 rounded">Job</span>
+                      {jcode(p.job_id)}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      Client Balance
                     </span>
                   )}
                 </div>
@@ -414,6 +453,31 @@ function PaymentsPage() {
               key: "s",
               header: "Status",
               render: (p) => <StatusBadge status={p.status} />,
+            },
+            {
+              key: "clearing",
+              header: "Clearing",
+              render: (p: any) =>
+                p.status !== "reversed" && (
+                  <Button
+                    size="sm"
+                    variant={p.status === "allocated" ? "ghost" : "outline"}
+                    className="h-7 text-xs px-2.5 font-medium"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate({
+                        to: "/clearing",
+                        search: {
+                          client: p.client_id,
+                          payment: p.id,
+                          job: p.job_id || undefined,
+                        },
+                      });
+                    }}
+                  >
+                    {p.status === "allocated" ? "View Clearing" : "Clear"}
+                  </Button>
+                ),
             },
             ...(canEdit("payments")
               ? [

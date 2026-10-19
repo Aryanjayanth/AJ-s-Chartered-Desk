@@ -296,8 +296,12 @@ function JobDetail() {
       _reason: "Checklist completed",
     });
     if (error) return toast.error(errMsg(error));
-    toast.success("Job marked as Completed! Ready for clearing.");
+    toast.success("Job marked as Completed! Moving to Payment Clearing.");
     qc.invalidateQueries();
+    navigate({
+      to: "/clearing",
+      search: { client: job?.client_id, job: id },
+    });
   };
 
   useEffect(() => {
@@ -520,6 +524,7 @@ function JobDetail() {
                       onClick={() =>
                         navigate({
                           to: "/clearing",
+                          search: { client: job.client_id, job: id },
                         })
                       }
                     >
@@ -866,21 +871,33 @@ function JobDetail() {
                 <span className="text-muted-foreground">Job</span>
                 <span className="font-mono">{job.job_code}</span>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between">
                 <span className="text-muted-foreground">Payment</span>
                 {payQ.data?.length ? (
-                  <div className="text-right text-xs space-y-0.5">
-                    <div className="font-mono text-primary underline underline-offset-2">
-                      {payQ.data[0].payment_code}
-                    </div>
-                    <div>Amount paid: {inr(payQ.data[0].amount)}</div>
-                    <div>
-                      Status:{" "}
-                      {payQ.data[0].status === "allocated" ? "Cleared" : label(payQ.data[0].status)}
-                    </div>
+                  <div className="text-right text-xs space-y-1.5">
+                    {payQ.data.map((p) => (
+                      <div key={p.id} className="space-y-0.5">
+                        <Link
+                          to="/clearing"
+                          search={{ client: job.client_id, payment: p.id, job: id }}
+                          className="font-mono text-primary font-semibold underline underline-offset-2 hover:opacity-80"
+                        >
+                          {p.payment_code}
+                        </Link>
+                        <div className="text-[11px] text-muted-foreground">
+                          {inr(p.amount)} · {p.status === "allocated" ? "Cleared" : label(p.status)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <span className="text-muted-foreground">Not Created</span>
+                  <Link
+                    to="/clearing"
+                    search={{ client: job.client_id, job: id }}
+                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    Clear Payment
+                  </Link>
                 )}
               </div>
               <div className="flex items-center justify-between">
@@ -919,10 +936,11 @@ function JobDetail() {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full"
+                className="w-full text-xs"
                 onClick={() =>
                   navigate({
                     to: "/clearing",
+                    search: { client: job.client_id, job: id },
                   })
                 }
               >
