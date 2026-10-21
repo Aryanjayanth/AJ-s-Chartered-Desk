@@ -221,7 +221,7 @@ function PaymentsPage() {
                 value={payForm.job_id}
                 onChange={(e) => {
                   const selJobId = e.target.value;
-                  const selJob = payClientJobs.find((j: any) => j.id === selJobId);
+                  const selJob = payClientJobs.find((j) => j.id === selJobId);
                   setPayForm((prev) => ({
                     ...prev,
                     job_id: selJobId,
@@ -235,7 +235,7 @@ function PaymentsPage() {
                 }}
               >
                 <option value="">General Client Deposit / Balance (No specific job)</option>
-                {payClientJobs.map((j: any) => (
+                {payClientJobs.map((j) => (
                   <option key={j.id} value={j.id}>
                     {j.job_code} — {j.title} (Fee: {inr(j.net_amount || j.fee || 0)})
                   </option>
@@ -457,7 +457,7 @@ function PaymentsPage() {
             {
               key: "clearing",
               header: "Clearing",
-              render: (p: any) =>
+              render: (p) =>
                 p.status !== "reversed" && (
                   <Button
                     size="sm"

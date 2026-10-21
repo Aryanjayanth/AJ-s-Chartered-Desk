@@ -890,17 +890,28 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         .single();
       if (jobErr || !job) continue;
 
+      const activeInvs = (job.invoice_items as any[])
+        ?.map((it: any) => it.invoices)
+        ?.filter((inv: any) => inv && inv.status !== "cancelled");
+      const existingInv = activeInvs?.[0];
+      let invoiceId: string | null = existingInv?.id ?? null;
+
       const curFee = Number(job.fee || 0);
       const curJobNet = Number(job.net_amount || curFee);
-      const maxJobDue = Math.max(0, curJobNet - jDisc);
+      // If invoice exists, remaining base due is the invoice's outstanding
+      const curBaseDue = existingInv
+        ? Math.max(0, Number(existingInv.total || 0) - Number(existingInv.amount_paid || 0))
+        : curJobNet;
+
+      const maxJobDue = Math.max(0, curBaseDue - jDisc);
       if (jAmt > maxJobDue + 0.01) {
         throw new Error(
           `Allocation (₹${jAmt}) cannot exceed net due (₹${maxJobDue}) for job ${job.job_code}`,
         );
       }
-      if (jDisc > curJobNet + 0.01) {
+      if (jDisc > curBaseDue + 0.01) {
         throw new Error(
-          `Discount (₹${jDisc}) cannot exceed fee (₹${curJobNet}) for job ${job.job_code}`,
+          `Discount (₹${jDisc}) cannot exceed remaining due (₹${curBaseDue}) for job ${job.job_code}`,
         );
       }
 
@@ -917,14 +928,36 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
             net_amount: updatedNet,
           })
           .eq("id", job.id);
+
+        if (existingInv) {
+          const newInvDisc = Number(existingInv.discount || 0) + jDisc;
+          const newInvTotal = Math.max(0, Number(existingInv.subtotal || 0) - newInvDisc);
+          await supabaseAdmin
+            .from("invoices")
+            .update({
+              discount: newInvDisc,
+              total: newInvTotal,
+            })
+            .eq("id", existingInv.id);
+
+          existingInv.discount = newInvDisc;
+          existingInv.total = newInvTotal;
+        }
       }
 
       // If job is fully discounted/waived and no payment allocation needed, close it immediately
-      if (updatedNet <= 0 && jAmt <= 0) {
+      if (maxJobDue <= 0 && jAmt <= 0) {
         await supabaseAdmin
           .from("jobs")
           .update({ financial_status: "closed", status: "completed" })
           .eq("id", job.id);
+
+        if (existingInv) {
+          await supabaseAdmin
+            .from("invoices")
+            .update({ status: "paid" })
+            .eq("id", existingInv.id);
+        }
 
         await supabaseAdmin.from("job_clearing").upsert(
           {
@@ -942,13 +975,6 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         );
         continue;
       }
-
-      // Check if job already has an active invoice (ignoring cancelled ones)
-      const activeInvs = (job.invoice_items as any[])
-        ?.map((it: any) => it.invoices)
-        ?.filter((inv: any) => inv && inv.status !== "cancelled");
-      const existingInv = activeInvs?.[0];
-      let invoiceId: string | null = existingInv?.id ?? null;
 
       if (!invoiceId) {
         // Create an invoice for this job (Note: outstanding is GENERATED ALWAYS AS STORED in PostgreSQL, so omitted)
@@ -998,7 +1024,7 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
       }
 
       // Allocate payment amount to invoice
-      if (invoiceId) {
+      if (invoiceId && jAlloc.amount > 0) {
         const { error: allocErr } = await supabaseAdmin.from("payment_allocations").insert({
           firm_id: job.firm_id,
           payment_id: pay.id,

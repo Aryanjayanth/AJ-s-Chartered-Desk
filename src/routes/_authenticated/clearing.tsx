@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Wallet,
@@ -115,9 +115,12 @@ interface ClientJob {
   fee: number;
   discount: number;
   net_amount: number;
+  paid_amount: number;
   service_name: string;
   due_date: string | null;
   created_at: string;
+  invoice_no?: string | null;
+  invoice_id?: string | null;
 }
 
 interface ClientExpense {
@@ -253,26 +256,65 @@ function ClearingDeskPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name)",
+          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status)",
         )
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      return (data ?? []).map((j: any) => ({
-        id: j.id,
-        job_code: j.job_code ?? "",
-        title: j.title ?? "",
-        client_id: j.client_id ?? "",
-        status: j.status ?? "pending",
-        financial_status: j.financial_status ?? "open",
-        fee: Number(j.fee || 0),
-        discount: Number(j.discount || 0),
-        net_amount: Number(j.net_amount || j.fee || 0),
-        service_name: j.services?.name ?? "General Service",
-        due_date: j.due_date ?? null,
-        created_at: j.created_at ?? "",
-      }));
+      return (data ?? []).map((j: any) => {
+        const fee = Number(j.fee || 0);
+        const discount = Number(j.discount || 0);
+        const baseNet = Number(j.net_amount || fee);
+
+        const clearingRec = Array.isArray(j.job_clearing) ? j.job_clearing[0] : j.job_clearing;
+        const initialAdvance = Number(clearingRec?.advance || 0);
+
+        const activeInvs = ((j.invoice_items as any[]) ?? [])
+          .map((it: any) => it.invoices)
+          .filter((inv: any) => inv && inv.status !== "cancelled");
+
+        const hasInvoice = activeInvs.length > 0;
+        const firstInv = activeInvs[0];
+
+        const invPaid = activeInvs.reduce(
+          (sum: number, inv: any) => sum + Number(inv.amount_paid || 0),
+          0,
+        );
+        const invOutstanding = activeInvs.reduce(
+          (sum: number, inv: any) =>
+            sum +
+            Math.max(
+              0,
+              Number(inv.outstanding ?? Number(inv.total || 0) - Number(inv.amount_paid || 0)),
+            ),
+          0,
+        );
+
+        // Effective prior paid amount (from invoice allocations or initial advance)
+        const totalPriorPaid = hasInvoice ? invPaid : initialAdvance;
+
+        // If invoiced, the net due to be cleared is the actual unpaid invoice outstanding; otherwise deduct initial advance
+        const netDue = hasInvoice ? invOutstanding : Math.max(0, baseNet - initialAdvance);
+
+        return {
+          id: j.id,
+          job_code: j.job_code ?? "",
+          title: j.title ?? "",
+          client_id: j.client_id ?? "",
+          status: j.status ?? "pending",
+          financial_status: j.financial_status ?? "open",
+          fee,
+          discount,
+          net_amount: netDue,
+          paid_amount: totalPriorPaid,
+          service_name: j.services?.name ?? "General Service",
+          due_date: j.due_date ?? null,
+          created_at: j.created_at ?? "",
+          invoice_no: firstInv?.invoice_no ?? null,
+          invoice_id: firstInv?.id ?? null,
+        };
+      });
     },
   });
 
@@ -336,7 +378,7 @@ function ClearingDeskPage() {
 
     const targetId = targetJobId || payment.job_id || search.job;
     const clientJobs = allJobs.filter(
-      (j) => j.client_id === payment.client_id && j.financial_status !== "closed",
+      (j) => j.client_id === payment.client_id && j.financial_status !== "closed" && j.net_amount > 0,
     );
 
     if (targetId) {
@@ -384,7 +426,10 @@ function ClearingDeskPage() {
   const clientJobsToPay = useMemo(() => {
     if (!allocatingPayment) return [];
     return allJobs.filter(
-      (j) => j.client_id === allocatingPayment.client_id && j.financial_status !== "closed",
+      (j) =>
+        j.client_id === allocatingPayment.client_id &&
+        j.financial_status !== "closed" &&
+        j.net_amount > 0,
     );
   }, [allocatingPayment, allJobs]);
 
@@ -450,6 +495,61 @@ function ClearingDeskPage() {
   const liveRemaining = paymentAvailable - currentLiveTotalAllocated;
   const isOverallocated = liveRemaining < -0.01;
 
+  // Real-time individual allocation & discount error detection
+  const individualErrors = useMemo(() => {
+    const list: { id: string; name: string; message: string }[] = [];
+
+    clientJobsToPay.forEach((job) => {
+      const alloc = Number(jobAllocations[job.id]?.amount || 0);
+      const disc = Number(jobAllocations[job.id]?.discount || 0);
+      const maxAllowed = Math.max(0, job.net_amount - disc);
+
+      if (disc > job.net_amount + 0.01) {
+        list.push({
+          id: job.id,
+          name: job.job_code,
+          message: `Job ${job.job_code}: Discount (${inr(disc)}) exceeds net due (${inr(job.net_amount)})`,
+        });
+      }
+      if (alloc > maxAllowed + 0.01) {
+        list.push({
+          id: job.id,
+          name: job.job_code,
+          message: `Job ${job.job_code}: Allocation (${inr(alloc)}) exceeds allowable balance (${inr(maxAllowed)})`,
+        });
+      }
+    });
+
+    clientExpensesToPay.forEach((exp) => {
+      const alloc = Number(expenseAllocations[exp.id]?.amount || 0);
+      const disc = Number(expenseAllocations[exp.id]?.discount || 0);
+      const maxAllowed = Math.max(0, exp.amount - disc);
+
+      if (disc > exp.amount + 0.01) {
+        list.push({
+          id: exp.id,
+          name: exp.description || "Outlay",
+          message: `Outlay "${exp.description}": Discount (${inr(disc)}) exceeds outlay amount (${inr(exp.amount)})`,
+        });
+      }
+      if (alloc > maxAllowed + 0.01) {
+        list.push({
+          id: exp.id,
+          name: exp.description || "Outlay",
+          message: `Outlay "${exp.description}": Allocation (${inr(alloc)}) exceeds allowable balance (${inr(maxAllowed)})`,
+        });
+      }
+    });
+
+    return list;
+  }, [clientJobsToPay, clientExpensesToPay, jobAllocations, expenseAllocations]);
+
+  const hasIndividualErrors = individualErrors.length > 0;
+  const cannotConfirm = isOverallocated || hasIndividualErrors;
+  const firstErrorMessage = isOverallocated
+    ? `Total allocation (${inr(currentLiveTotalAllocated)}) exceeds available payment (${inr(paymentAvailable)}) by ${inr(Math.abs(liveRemaining))}`
+    : individualErrors[0]?.message ?? "";
+
   const hasJobAction = useMemo(() => {
     return Object.values(jobAllocations).some((j) => (j.amount || 0) > 0 || (j.discount || 0) > 0);
   }, [jobAllocations]);
@@ -473,8 +573,8 @@ function ClearingDeskPage() {
 
   const currentLiveTotalDiscount = currentLiveJobDiscTotal + currentLiveExpDiscTotal;
 
-  // Manual allocation input updater for a Job (capped at net due)
-  const handleJobAmountChange = (jobId: string, amountStr: string, maxDue?: number) => {
+  // Manual allocation input updater for a Job
+  const handleJobAmountChange = (jobId: string, amountStr: string) => {
     if (amountStr === "") {
       setJobAllocations((prev) => ({
         ...prev,
@@ -482,23 +582,18 @@ function ClearingDeskPage() {
       }));
       return;
     }
-    let val = parseFloat(amountStr);
+    const val = parseFloat(amountStr);
     if (isNaN(val)) return;
-    if (val < 0) val = 0;
-    if (maxDue != null && val > maxDue) {
-      toast.warning(`Cannot allocate more than the job net due (${inr(maxDue)})`);
-      val = maxDue;
-    }
     setJobAllocations((prev) => ({
       ...prev,
       [jobId]: {
-        amount: val,
+        amount: Math.max(0, val),
         discount: prev[jobId]?.discount ?? 0,
       },
     }));
   };
 
-  const handleJobDiscountChange = (jobId: string, discStr: string, maxFee?: number) => {
+  const handleJobDiscountChange = (jobId: string, discStr: string) => {
     if (discStr === "") {
       setJobAllocations((prev) => ({
         ...prev,
@@ -506,24 +601,19 @@ function ClearingDeskPage() {
       }));
       return;
     }
-    let val = parseFloat(discStr);
+    const val = parseFloat(discStr);
     if (isNaN(val)) return;
-    if (val < 0) val = 0;
-    if (maxFee != null && val > maxFee) {
-      toast.warning(`Discount cannot exceed the job fee (${inr(maxFee)})`);
-      val = maxFee;
-    }
     setJobAllocations((prev) => ({
       ...prev,
       [jobId]: {
         amount: prev[jobId]?.amount ?? 0,
-        discount: val,
+        discount: Math.max(0, val),
       },
     }));
   };
 
-  // Manual allocation input updater for an Expense (strictly capped at net outlay due)
-  const handleExpenseAmountChange = (expId: string, amountStr: string, maxDue?: number) => {
+  // Manual allocation input updater for an Expense
+  const handleExpenseAmountChange = (expId: string, amountStr: string) => {
     if (amountStr === "") {
       setExpenseAllocations((prev) => ({
         ...prev,
@@ -531,24 +621,19 @@ function ClearingDeskPage() {
       }));
       return;
     }
-    let val = parseFloat(amountStr);
+    const val = parseFloat(amountStr);
     if (isNaN(val)) return;
-    if (val < 0) val = 0;
-    if (maxDue != null && val > maxDue) {
-      toast.warning(`Cannot reimburse more than the net outlay due (${inr(maxDue)})`);
-      val = maxDue;
-    }
     setExpenseAllocations((prev) => ({
       ...prev,
       [expId]: {
-        amount: val,
+        amount: Math.max(0, val),
         discount: prev[expId]?.discount ?? 0,
       },
     }));
   };
 
-  // Manual discount/waiver input updater for an Expense (capped at total outlay amount)
-  const handleExpenseDiscountChange = (expId: string, discStr: string, maxOutlay?: number) => {
+  // Manual discount/waiver input updater for an Expense
+  const handleExpenseDiscountChange = (expId: string, discStr: string) => {
     if (discStr === "") {
       setExpenseAllocations((prev) => ({
         ...prev,
@@ -556,18 +641,13 @@ function ClearingDeskPage() {
       }));
       return;
     }
-    let val = parseFloat(discStr);
+    const val = parseFloat(discStr);
     if (isNaN(val)) return;
-    if (val < 0) val = 0;
-    if (maxOutlay != null && val > maxOutlay) {
-      toast.warning(`Discount cannot exceed the outlay amount (${inr(maxOutlay)})`);
-      val = maxOutlay;
-    }
     setExpenseAllocations((prev) => ({
       ...prev,
       [expId]: {
         amount: prev[expId]?.amount ?? 0,
-        discount: val,
+        discount: Math.max(0, val),
       },
     }));
   };
@@ -575,14 +655,18 @@ function ClearingDeskPage() {
   // Save Manual Allocation
   const handleConfirmManualAllocation = async () => {
     if (!allocatingPayment) return;
+    if (cannotConfirm) {
+      toast.error(firstErrorMessage);
+      return;
+    }
 
     let targetJobAllocs = { ...jobAllocations };
-    let targetExpAllocs = { ...expenseAllocations };
+    const targetExpAllocs = { ...expenseAllocations };
 
     let hasJobAction = Object.values(targetJobAllocs).some(
       (j) => (j.amount || 0) > 0 || (j.discount || 0) > 0,
     );
-    let hasExpAction = Object.values(targetExpAllocs).some(
+    const hasExpAction = Object.values(targetExpAllocs).some(
       (e) => (e.amount || 0) > 0 || (e.discount || 0) > 0,
     );
 
@@ -852,24 +936,37 @@ function ClearingDeskPage() {
                   Quick Clear (Auto-Fill)
                 </Button>
               )}
+            {cannotConfirm && (
+              <span className="text-[11px] text-destructive font-semibold hidden lg:inline-flex items-center gap-1 max-w-xs truncate">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {firstErrorMessage}
+              </span>
+            )}
             <Button
               size="sm"
               onClick={handleConfirmManualAllocation}
               disabled={
                 isAllocating ||
-                isOverallocated ||
+                cannotConfirm ||
                 (paymentAvailable <= 0 && currentLiveTotalAllocated <= 0)
               }
-              className="gap-1.5 font-semibold shadow-sm"
+              className={cn(
+                "gap-1.5 font-semibold shadow-sm transition-all",
+                cannotConfirm && "opacity-75 cursor-not-allowed",
+              )}
             >
               <Check className="h-4 w-4" />
               {isAllocating
                 ? "Allocating…"
-                : currentLiveTotalAllocated > 0
-                  ? `Confirm Allocation (${inr(currentLiveTotalAllocated)})`
-                  : paymentAvailable > 0 && clientJobsToPay.length > 0
-                    ? "Quick Clear All Due"
-                    : "Confirm Clearing"}
+                : cannotConfirm
+                  ? isOverallocated
+                    ? `Overallocated (${inr(Math.abs(liveRemaining))})`
+                    : "Exceeds Limit"
+                  : currentLiveTotalAllocated > 0
+                    ? `Confirm Allocation (${inr(currentLiveTotalAllocated)})`
+                    : paymentAvailable > 0 && clientJobsToPay.length > 0
+                      ? "Quick Clear All Due"
+                      : "Confirm Clearing"}
             </Button>
           </div>
         </div>
@@ -988,6 +1085,15 @@ function ClearingDeskPage() {
           </div>
         )}
 
+        {hasIndividualErrors && (
+          <div className="text-xs font-semibold text-destructive flex items-center gap-2 bg-destructive/10 border border-destructive/20 p-3 rounded-lg">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>
+              Allocation error: {firstErrorMessage}. Please correct the entered amounts or discounts to match the remaining dues.
+            </span>
+          </div>
+        )}
+
         {/* BOTH JOBS AND EXPENSES ON THE SAME PAGE (NO TABS) */}
         <div className="space-y-8">
           {/* SECTION 1: JOBS NEEDING PAYMENT */}
@@ -1028,16 +1134,23 @@ function ClearingDeskPage() {
                 {clientJobsToPay.map((job) => {
                   const curAlloc = jobAllocations[job.id]?.amount ?? "";
                   const curDisc = jobAllocations[job.id]?.discount ?? "";
-                  const netDue = Math.max(0, job.net_amount - (parseFloat(String(curDisc)) || 0));
+                  const curAllocNum = parseFloat(String(curAlloc)) || 0;
+                  const curDiscNum = parseFloat(String(curDisc)) || 0;
+                  const netDue = Math.max(0, job.net_amount - curDiscNum);
+                  const isAllocExceeded = curAllocNum > netDue + 0.01;
+                  const isDiscExceeded = curDiscNum > job.net_amount + 0.01;
+                  const isCardOverLimit = isAllocExceeded || isDiscExceeded;
 
                   return (
                     <div
                       key={job.id}
                       className={cn(
                         "rounded-lg border p-4 bg-card transition-all space-y-3",
-                        Number(curAlloc) > 0
-                          ? "border-primary/60 shadow-xs bg-primary/2"
-                          : "hover:border-border",
+                        isCardOverLimit
+                          ? "border-destructive/80 bg-destructive/5 shadow-xs"
+                          : Number(curAlloc) > 0
+                            ? "border-primary/60 shadow-xs bg-primary/2"
+                            : "hover:border-border",
                       )}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1055,6 +1168,11 @@ function ClearingDeskPage() {
                               {job.service_name}
                             </Badge>
                             <StatusBadge status={job.status} />
+                            {isCardOverLimit && (
+                              <Badge variant="destructive" className="text-[10px] font-bold">
+                                Exceeds Due
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-xs font-semibold text-foreground mt-1">
                             {job.title}
@@ -1074,9 +1192,20 @@ function ClearingDeskPage() {
                               Prior Discount: -{inr(job.discount)}
                             </div>
                           )}
+                          {job.paid_amount > 0 && (
+                            <div className="text-[10px] text-blue-600 font-mono">
+                              Prior Paid: -{inr(job.paid_amount)}
+                              {job.invoice_no ? ` (${job.invoice_no})` : ""}
+                            </div>
+                          )}
                           <div className="text-sm font-mono font-bold text-primary mt-0.5">
                             Net Due: {inr(job.net_amount)}
                           </div>
+                          {curDiscNum > 0 && (
+                            <div className="text-[11px] font-mono font-semibold text-emerald-600">
+                              After Disc: {inr(netDue)}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1084,23 +1213,28 @@ function ClearingDeskPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t items-end">
                         <div className="sm:col-span-6">
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-semibold text-muted-foreground">
+                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                               Manual Amount to Allocate (₹) *
+                              {isAllocExceeded && (
+                                <span className="text-[10px] text-destructive font-bold">
+                                  (MAX: {inr(netDue)})
+                                </span>
+                              )}
                             </label>
                             {netDue > 0 && (
                               <button
                                 type="button"
                                 onClick={() => {
                                   const allocWithoutCurrent =
-                                    currentLiveTotalAllocated - (Number(curAlloc) || 0);
+                                    currentLiveTotalAllocated - curAllocNum;
                                   const roomAvailable = Math.max(
                                     0,
                                     paymentAvailable - allocWithoutCurrent,
                                   );
                                   const targetAmt = Math.min(netDue, roomAvailable);
-                                  handleJobAmountChange(job.id, String(targetAmt), netDue);
+                                  handleJobAmountChange(job.id, String(targetAmt));
                                 }}
-                                className="text-[10px] font-semibold text-primary hover:underline"
+                                className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
                               >
                                 Fill Full ({inr(netDue)})
                               </button>
@@ -1114,37 +1248,57 @@ function ClearingDeskPage() {
                               step="any"
                               value={curAlloc}
                               onChange={(e) =>
-                                handleJobAmountChange(job.id, e.target.value, netDue)
+                                handleJobAmountChange(job.id, e.target.value)
                               }
                               placeholder="0.00"
                               className={cn(
-                                "font-mono text-xs h-9 pr-12 font-semibold",
-                                Number(curAlloc) > netDue &&
-                                  "border-destructive text-destructive focus-visible:ring-destructive",
+                                "font-mono text-xs h-9 pr-12 font-semibold transition-colors",
+                                isAllocExceeded
+                                  ? "border-destructive text-destructive bg-destructive/10 ring-1 ring-destructive focus-visible:ring-destructive"
+                                  : Number(curAlloc) > 0 && "border-primary/50",
                               )}
                             />
                             {Number(curAlloc) > 0 && (
                               <button
                                 type="button"
-                                onClick={() => handleJobAmountChange(job.id, "", netDue)}
-                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleJobAmountChange(job.id, "")}
+                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
                                 title="Clear amount"
                               >
                                 <X className="h-4 w-4" />
                               </button>
                             )}
                           </div>
-                          {Number(curAlloc) > netDue && (
-                            <p className="text-[10px] text-destructive mt-1 font-medium">
-                              Cannot exceed net due of {inr(netDue)}
+                          {isAllocExceeded ? (
+                            <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
+                              <div className="flex items-center gap-1.5">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span>Allocation ({inr(curAllocNum)}) exceeds net due ({inr(netDue)})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleJobAmountChange(job.id, String(netDue))}
+                                className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
+                              >
+                                Set to {inr(netDue)}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Max allowable allocation for this job is {inr(netDue)}
                             </p>
                           )}
                         </div>
 
                         <div className="sm:col-span-6">
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-semibold text-muted-foreground block">
+                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                               Award Discount (₹) (Optional)
+                              {isDiscExceeded && (
+                                <span className="text-[10px] text-destructive font-bold">
+                                  (MAX: {inr(job.net_amount)})
+                                </span>
+                              )}
                             </label>
                             {job.net_amount > 0 && (
                               <span className="text-[10px] text-muted-foreground">
@@ -1160,29 +1314,44 @@ function ClearingDeskPage() {
                               step="any"
                               value={curDisc}
                               onChange={(e) =>
-                                handleJobDiscountChange(job.id, e.target.value, job.net_amount)
+                                handleJobDiscountChange(job.id, e.target.value)
                               }
                               placeholder="0.00"
                               className={cn(
-                                "font-mono text-xs h-9 pr-12",
-                                Number(curDisc) > job.net_amount &&
-                                  "border-destructive text-destructive focus-visible:ring-destructive",
+                                "font-mono text-xs h-9 pr-12 transition-colors",
+                                isDiscExceeded
+                                  ? "border-destructive text-destructive bg-destructive/10 ring-1 ring-destructive focus-visible:ring-destructive"
+                                  : Number(curDisc) > 0 && "border-emerald-500/50",
                               )}
                             />
                             {Number(curDisc) > 0 && (
                               <button
                                 type="button"
-                                onClick={() => handleJobDiscountChange(job.id, "", job.net_amount)}
-                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleJobDiscountChange(job.id, "")}
+                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
                                 title="Clear discount"
                               >
                                 <X className="h-4 w-4" />
                               </button>
                             )}
                           </div>
-                          {Number(curDisc) > job.net_amount && (
-                            <p className="text-[10px] text-destructive mt-1 font-medium">
-                              Discount cannot exceed job fee of {inr(job.net_amount)}
+                          {isDiscExceeded ? (
+                            <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
+                              <div className="flex items-center gap-1.5">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span>Discount ({inr(curDiscNum)}) exceeds remaining fee ({inr(job.net_amount)})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleJobDiscountChange(job.id, String(job.net_amount))}
+                                className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
+                              >
+                                Set to {inr(job.net_amount)}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Reduces fee and squares off remaining invoice balance
                             </p>
                           )}
                         </div>
@@ -1218,16 +1387,23 @@ function ClearingDeskPage() {
                 {clientExpensesToPay.map((exp) => {
                   const curExpAlloc = expenseAllocations[exp.id]?.amount ?? "";
                   const curExpDisc = expenseAllocations[exp.id]?.discount ?? "";
-                  const netExpDue = Math.max(0, exp.amount - (parseFloat(String(curExpDisc)) || 0));
+                  const curExpAllocNum = parseFloat(String(curExpAlloc)) || 0;
+                  const curExpDiscNum = parseFloat(String(curExpDisc)) || 0;
+                  const netExpDue = Math.max(0, exp.amount - curExpDiscNum);
+                  const isExpAllocExceeded = curExpAllocNum > netExpDue + 0.01;
+                  const isExpDiscExceeded = curExpDiscNum > exp.amount + 0.01;
+                  const isExpCardOverLimit = isExpAllocExceeded || isExpDiscExceeded;
 
                   return (
                     <div
                       key={exp.id}
                       className={cn(
                         "rounded-lg border p-4 bg-card transition-all space-y-3",
-                        Number(curExpAlloc) > 0 || Number(curExpDisc) > 0
-                          ? "border-amber-500/60 shadow-xs bg-amber-500/2"
-                          : "hover:border-border",
+                        isExpCardOverLimit
+                          ? "border-destructive/80 bg-destructive/5 shadow-xs"
+                          : Number(curExpAlloc) > 0 || Number(curExpDisc) > 0
+                            ? "border-amber-500/60 shadow-xs bg-amber-500/2"
+                            : "hover:border-border",
                       )}
                     >
                       {/* Top Details & Figures Row */}
@@ -1248,6 +1424,11 @@ function ClearingDeskPage() {
                                 Paid via {exp.mode}
                               </span>
                             )}
+                            {isExpCardOverLimit && (
+                              <Badge variant="destructive" className="text-[10px] font-bold">
+                                Exceeds Due
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground">
                             Expense Date: {fmtDate(exp.expense_date)}
@@ -1267,9 +1448,9 @@ function ClearingDeskPage() {
                             Outlay Incurred:{" "}
                             <span className="font-mono font-semibold">{inr(exp.amount)}</span>
                           </div>
-                          {Number(curExpDisc) > 0 && (
+                          {curExpDiscNum > 0 && (
                             <div className="text-[10px] text-emerald-600 font-mono">
-                              Waiver / Discount: -{inr(Number(curExpDisc))}
+                              Waiver / Discount: -{inr(curExpDiscNum)}
                             </div>
                           )}
                           <div className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400 mt-0.5">
@@ -1282,23 +1463,28 @@ function ClearingDeskPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t items-end">
                         <div className="sm:col-span-6">
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-semibold text-muted-foreground">
+                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                               Manual Reimbursement (₹) *
+                              {isExpAllocExceeded && (
+                                <span className="text-[10px] text-destructive font-bold">
+                                  (MAX: {inr(netExpDue)})
+                                </span>
+                              )}
                             </label>
                             {netExpDue > 0 && (
                               <button
                                 type="button"
                                 onClick={() => {
                                   const allocWithoutCurrent =
-                                    currentLiveTotalAllocated - (Number(curExpAlloc) || 0);
+                                    currentLiveTotalAllocated - curExpAllocNum;
                                   const roomAvailable = Math.max(
                                     0,
                                     paymentAvailable - allocWithoutCurrent,
                                   );
                                   const targetAmt = Math.min(netExpDue, roomAvailable);
-                                  handleExpenseAmountChange(exp.id, String(targetAmt), netExpDue);
+                                  handleExpenseAmountChange(exp.id, String(targetAmt));
                                 }}
-                                className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+                                className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
                               >
                                 Fill Full Outlay ({inr(netExpDue)})
                               </button>
@@ -1312,37 +1498,57 @@ function ClearingDeskPage() {
                               step="any"
                               value={curExpAlloc}
                               onChange={(e) =>
-                                handleExpenseAmountChange(exp.id, e.target.value, netExpDue)
+                                handleExpenseAmountChange(exp.id, e.target.value)
                               }
                               placeholder="0.00"
                               className={cn(
-                                "font-mono text-xs h-9 pr-12 font-semibold",
-                                Number(curExpAlloc) > netExpDue &&
-                                  "border-destructive text-destructive focus-visible:ring-destructive",
+                                "font-mono text-xs h-9 pr-12 font-semibold transition-colors",
+                                isExpAllocExceeded
+                                  ? "border-destructive text-destructive bg-destructive/10 ring-1 ring-destructive focus-visible:ring-destructive"
+                                  : Number(curExpAlloc) > 0 && "border-amber-500/50",
                               )}
                             />
                             {Number(curExpAlloc) > 0 && (
                               <button
                                 type="button"
-                                onClick={() => handleExpenseAmountChange(exp.id, "", netExpDue)}
-                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleExpenseAmountChange(exp.id, "")}
+                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
                                 title="Clear reimbursement"
                               >
                                 <X className="h-4 w-4" />
                               </button>
                             )}
                           </div>
-                          {Number(curExpAlloc) > netExpDue && (
-                            <p className="text-[10px] text-destructive mt-1 font-medium">
-                              Cannot exceed net outlay due of {inr(netExpDue)}
+                          {isExpAllocExceeded ? (
+                            <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
+                              <div className="flex items-center gap-1.5">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span>Reimbursement ({inr(curExpAllocNum)}) exceeds outlay due ({inr(netExpDue)})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleExpenseAmountChange(exp.id, String(netExpDue))}
+                                className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
+                              >
+                                Set to {inr(netExpDue)}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Max allowable reimbursement is {inr(netExpDue)}
                             </p>
                           )}
                         </div>
 
                         <div className="sm:col-span-6">
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-semibold text-muted-foreground block">
+                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                               Award Discount / Waiver (₹) (Optional)
+                              {isExpDiscExceeded && (
+                                <span className="text-[10px] text-destructive font-bold">
+                                  (MAX: {inr(exp.amount)})
+                                </span>
+                              )}
                             </label>
                             {exp.amount > 0 && (
                               <span className="text-[10px] text-muted-foreground">
@@ -1358,29 +1564,44 @@ function ClearingDeskPage() {
                               step="any"
                               value={curExpDisc}
                               onChange={(e) =>
-                                handleExpenseDiscountChange(exp.id, e.target.value, exp.amount)
+                                handleExpenseDiscountChange(exp.id, e.target.value)
                               }
                               placeholder="0.00"
                               className={cn(
-                                "font-mono text-xs h-9 pr-12",
-                                Number(curExpDisc) > exp.amount &&
-                                  "border-destructive text-destructive focus-visible:ring-destructive",
+                                "font-mono text-xs h-9 pr-12 transition-colors",
+                                isExpDiscExceeded
+                                  ? "border-destructive text-destructive bg-destructive/10 ring-1 ring-destructive focus-visible:ring-destructive"
+                                  : Number(curExpDisc) > 0 && "border-emerald-500/50",
                               )}
                             />
                             {Number(curExpDisc) > 0 && (
                               <button
                                 type="button"
-                                onClick={() => handleExpenseDiscountChange(exp.id, "", exp.amount)}
-                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleExpenseDiscountChange(exp.id, "")}
+                                className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
                                 title="Clear discount"
                               >
                                 <X className="h-4 w-4" />
                               </button>
                             )}
                           </div>
-                          {Number(curExpDisc) > exp.amount && (
-                            <p className="text-[10px] text-destructive mt-1 font-medium">
-                              Discount cannot exceed outlay of {inr(exp.amount)}
+                          {isExpDiscExceeded ? (
+                            <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
+                              <div className="flex items-center gap-1.5">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span>Discount ({inr(curExpDiscNum)}) exceeds outlay amount ({inr(exp.amount)})</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleExpenseDiscountChange(exp.id, String(exp.amount))}
+                                className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
+                              >
+                                Set to {inr(exp.amount)}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Waives client reimbursement obligation for this outlay
                             </p>
                           )}
                         </div>
@@ -1439,18 +1660,35 @@ function ClearingDeskPage() {
             >
               Cancel
             </Button>
+            {cannotConfirm && (
+              <span className="text-xs text-destructive font-semibold hidden md:inline-flex items-center gap-1 max-w-md truncate">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {firstErrorMessage}
+              </span>
+            )}
             <Button
               size="sm"
               onClick={handleConfirmManualAllocation}
-              disabled={isAllocating || isOverallocated || (!hasJobAction && !hasExpAction)}
-              className="gap-1.5 font-semibold shadow-sm"
+              disabled={
+                isAllocating ||
+                cannotConfirm ||
+                (!hasJobAction && !hasExpAction && paymentAvailable <= 0)
+              }
+              className={cn(
+                "gap-1.5 font-semibold shadow-sm transition-all",
+                cannotConfirm && "opacity-75 cursor-not-allowed",
+              )}
             >
               <Check className="h-4 w-4" />
               {isAllocating
                 ? "Allocating…"
-                : currentLiveTotalAllocated > 0
-                  ? `Confirm Manual Allocation (${inr(currentLiveTotalAllocated)})`
-                  : "Confirm Clearing"}
+                : cannotConfirm
+                  ? isOverallocated
+                    ? `Overallocated (${inr(Math.abs(liveRemaining))})`
+                    : "Exceeds Limit"
+                  : currentLiveTotalAllocated > 0
+                    ? `Confirm Manual Allocation (${inr(currentLiveTotalAllocated)})`
+                    : "Confirm Clearing"}
             </Button>
           </div>
         </div>
