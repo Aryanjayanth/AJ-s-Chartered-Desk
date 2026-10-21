@@ -46,37 +46,51 @@ export function useUserFirms() {
   return useQuery<UserFirmItem[]>({
     queryKey: ["user-firms-list"],
     queryFn: async (): Promise<UserFirmItem[]> => {
+      let rawFirms: UserFirmItem[] = [];
+
       // 1. Try server function first (bypasses RLS to return all active practice firms)
       try {
         const firms = await fetchPracticeFirms();
         if (Array.isArray(firms) && firms.length > 0) {
-          return firms as UserFirmItem[];
+          rawFirms = firms as UserFirmItem[];
         }
       } catch {
         // fallback
       }
 
       // 2. Try RPC user_firms_list
-      try {
-        // @ts-expect-error user_firms_list is a custom RPC
-        const { data, error } = await supabase.rpc("user_firms_list");
-        if (!error && Array.isArray(data) && data.length > 0) {
-          return data as unknown as UserFirmItem[];
+      if (rawFirms.length === 0) {
+        try {
+          // @ts-expect-error user_firms_list is a custom RPC
+          const { data, error } = await supabase.rpc("user_firms_list");
+          if (!error && Array.isArray(data) && data.length > 0) {
+            rawFirms = data as unknown as UserFirmItem[];
+          }
+        } catch {
+          // fallback
         }
-      } catch {
-        // fallback
       }
 
       // 3. Direct table select fallback
-      const { data } = await supabase
-        .from("firms")
-        .select("id, name, logo_url, owner_email, phone, city, status")
-        .order("name");
-      return (data ?? []).map((f) => ({
-        ...f,
-        role: "admin",
-        is_current: false,
-      }));
+      if (rawFirms.length === 0) {
+        const { data } = await supabase
+          .from("firms")
+          .select("id, name, logo_url, owner_email, phone, city, status")
+          .order("name");
+        rawFirms = (data ?? []).map((f) => ({
+          ...f,
+          role: "admin",
+          is_current: false,
+        }));
+      }
+
+      // Deduplicate firms strictly by unique id
+      const seen = new Set<string>();
+      return rawFirms.filter((f) => {
+        if (!f?.id || seen.has(f.id)) return false;
+        seen.add(f.id);
+        return true;
+      });
     },
   });
 }

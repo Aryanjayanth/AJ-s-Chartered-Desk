@@ -3337,7 +3337,7 @@ RETURNS TABLE (
   is_current boolean
 )
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  select distinct
+  select distinct on (f.id)
     f.id,
     f.name,
     f.logo_url,
@@ -3349,7 +3349,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
     (f.id = public.current_firm_id()) as is_current
   from public.firms f
   left join public.profiles p on p.id = auth.uid()
-  left join public.user_roles ur on ur.user_id = auth.uid()
+  left join public.user_roles ur on ur.user_id = auth.uid() and ur.firm_id = f.id
   where f.status = 'active'
     and (
       public.is_super_admin()
@@ -3358,7 +3358,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
       or lower(f.owner_email) = lower(auth.jwt()->>'email')
       or exists (select 1 from public.firm_invites fi where fi.firm_id = f.id and lower(fi.email) = lower(auth.jwt()->>'email'))
     )
-  order by f.name asc;
+  order by f.id, (f.id = public.current_firm_id()) desc;
 $$;
 
 -- 7. Register Firm RPC

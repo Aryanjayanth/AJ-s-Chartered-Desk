@@ -257,43 +257,46 @@ function JobsPage() {
         bulkActions={(selectedJobs, clearSelection) => (
           <div className="flex items-center gap-2">
             {canEdit("jobs") && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="default" className="h-8 text-xs font-medium">
-                    Mark as…
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => handleBulkStatus(selectedJobs, "completed", clearSelection)}
-                    className="cursor-pointer gap-2"
-                  >
-                    <Check className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Completed</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => handleBulkStatus(selectedJobs, "in_progress", clearSelection)}
-                    className="cursor-pointer gap-2"
-                  >
-                    <Clock className="h-3.5 w-3.5 text-blue-600" />
-                    <span>In Progress</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => handleBulkStatus(selectedJobs, "on_hold", clearSelection)}
-                    className="cursor-pointer gap-2"
-                  >
-                    <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
-                    <span>On Hold</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => handleBulkStatus(selectedJobs, "cancelled", clearSelection)}
-                    className="cursor-pointer gap-2 text-destructive"
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
-                    <span>Cancelled</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+                  onClick={() => handleBulkStatus(selectedJobs, "completed", clearSelection)}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Mark Done ({selectedJobs.length})
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium">
+                      Status…
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selectedJobs, "in_progress", clearSelection)}
+                      className="cursor-pointer gap-2"
+                    >
+                      <Clock className="h-3.5 w-3.5 text-blue-600" />
+                      <span>In Progress</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selectedJobs, "on_hold", clearSelection)}
+                      className="cursor-pointer gap-2"
+                    >
+                      <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
+                      <span>On Hold</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selectedJobs, "cancelled", clearSelection)}
+                      className="cursor-pointer gap-2 text-destructive"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      <span>Cancelled</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             )}
 
             {canDelete("jobs") && (
@@ -430,17 +433,29 @@ function JobsPage() {
             key: "title",
             header: "Title / Service",
             sort: (j) => j.title,
-            render: (j) => (
-              <div className="flex flex-col gap-0.5">
-                <span className="font-medium text-foreground">{j.title}</span>
-                {j.company_name && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary/90">
-                    <Building2 className="h-3 w-3 shrink-0" />
-                    {j.company_name}
+            render: (j) => {
+              const isCompleted = j.status === "completed";
+              return (
+                <div className="flex flex-col gap-0.5">
+                  <span
+                    className={cn(
+                      "font-medium transition-all",
+                      isCompleted
+                        ? "line-through text-muted-foreground/75"
+                        : "text-foreground",
+                    )}
+                  >
+                    {j.title}
                   </span>
-                )}
-              </div>
-            ),
+                  {j.company_name && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary/90">
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      {j.company_name}
+                    </span>
+                  )}
+                </div>
+              );
+            },
           },
           {
             key: "c",

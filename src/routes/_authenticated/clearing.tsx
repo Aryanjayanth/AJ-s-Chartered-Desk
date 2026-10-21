@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -23,6 +23,8 @@ import {
   Layers,
   Sparkles,
   Zap,
+  AlertTriangle,
+  CalendarClock,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -418,6 +420,20 @@ function ClearingDeskPage() {
       );
       if (match && (!allocatingPayment || allocatingPayment.id !== match.id)) {
         handleOpenAllocation(match, search.job);
+      } else if (!match && allJobs.length > 0 && !allocatingPayment) {
+        // No unallocated credit available for this client: automatically open Record & Clear Payment modal for this job!
+        const targetJob = allJobs.find((j) => j.id === search.job);
+        if (targetJob && targetJob.net_amount > 0 && !isRecordModalOpen) {
+          setRecordForm({
+            clientId: targetJob.client_id,
+            jobId: targetJob.id,
+            amount: String(targetJob.net_amount),
+            paymentDate: today(),
+            mode: "bank",
+            narration: `Clearing settlement for job ${targetJob.job_code} (${targetJob.title})`,
+          });
+          setIsRecordModalOpen(true);
+        }
       }
     }
   }, [search.payment, search.job, search.client, allPayments]);
@@ -813,7 +829,7 @@ function ClearingDeskPage() {
     setIsSavingRecord(true);
     const toastId = toast.loading("Saving payment entry...");
     try {
-      await recordPaymentEntry({
+      const res = await recordPaymentEntry({
         data: {
           clientId: recordForm.clientId,
           jobId: recordForm.jobId || null,
@@ -822,15 +838,22 @@ function ClearingDeskPage() {
           mode: recordForm.mode,
           narration: recordForm.narration,
           isAdvance: true,
+          autoAllocate: true,
         },
       });
 
       toast.dismiss(toastId);
-      toast.success(`Payment of ${inr(amt)} recorded successfully!`, {
-        description: recordForm.jobId
-          ? "Recorded and linked to job ready for clearing."
-          : "Recorded in payment history ready for manual allocation.",
-      });
+      if (recordForm.jobId && res.allocatedToJob && res.allocatedToJob > 0) {
+        if (res.remainingCredit && res.remainingCredit > 0) {
+          toast.success(
+            `Payment of ${inr(amt)} recorded: ${inr(res.allocatedToJob)} cleared against job, and remaining ${inr(res.remainingCredit)} is stored as client credit!`,
+          );
+        } else {
+          toast.success(`Payment of ${inr(amt)} recorded and cleared against job!`);
+        }
+      } else {
+        toast.success(`Payment of ${inr(amt)} recorded successfully into client deposit history.`);
+      }
 
       setIsRecordModalOpen(false);
       setRecordForm({
@@ -908,20 +931,8 @@ function ClearingDeskPage() {
             </div>
           </div>
 
-          {/* Action Buttons in Sticky Header */}
+          {/* Top Header Actions (Quick fill shortcut; Confirm & Cancel buttons are below in the main action bar) */}
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setAllocatingPayment(null);
-                setJobAllocations({});
-                setExpenseAllocations({});
-              }}
-              disabled={isAllocating}
-            >
-              Cancel
-            </Button>
             {paymentAvailable > 0 &&
               (clientJobsToPay.length > 0 || clientExpensesToPay.length > 0) && (
                 <Button
@@ -936,38 +947,6 @@ function ClearingDeskPage() {
                   Quick Clear (Auto-Fill)
                 </Button>
               )}
-            {cannotConfirm && (
-              <span className="text-[11px] text-destructive font-semibold hidden lg:inline-flex items-center gap-1 max-w-xs truncate">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                {firstErrorMessage}
-              </span>
-            )}
-            <Button
-              size="sm"
-              onClick={handleConfirmManualAllocation}
-              disabled={
-                isAllocating ||
-                cannotConfirm ||
-                (paymentAvailable <= 0 && currentLiveTotalAllocated <= 0)
-              }
-              className={cn(
-                "gap-1.5 font-semibold shadow-sm transition-all",
-                cannotConfirm && "opacity-75 cursor-not-allowed",
-              )}
-            >
-              <Check className="h-4 w-4" />
-              {isAllocating
-                ? "Allocating…"
-                : cannotConfirm
-                  ? isOverallocated
-                    ? `Overallocated (${inr(Math.abs(liveRemaining))})`
-                    : "Exceeds Limit"
-                  : currentLiveTotalAllocated > 0
-                    ? `Confirm Allocation (${inr(currentLiveTotalAllocated)})`
-                    : paymentAvailable > 0 && clientJobsToPay.length > 0
-                      ? "Quick Clear All Due"
-                      : "Confirm Clearing"}
-            </Button>
           </div>
         </div>
 
@@ -1705,7 +1684,19 @@ function ClearingDeskPage() {
         title="Payment Clearing Desk"
         subtitle="Payment entry history and manual allocation against jobs and reimbursable client expenses."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/outstanding">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                Client Pendings
+              </Button>
+            </Link>
+            <Link to="/ageing">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs font-medium">
+                <CalendarClock className="h-3.5 w-3.5 text-primary" />
+                Receivables Ageing
+              </Button>
+            </Link>
             {canCreate("payments") && (
               <Button onClick={() => setIsRecordModalOpen(true)} className="gap-1.5 shadow-sm">
                 <Plus className="h-4 w-4" />
@@ -1743,14 +1734,19 @@ function ClearingDeskPage() {
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Uncleared Jobs Due
               </p>
-              <h3 className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
+              <h3 className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
                 {inr(totalUnclearedJobsFee)}
               </h3>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Completed &amp; unbilled work awaiting payment settlement
-              </p>
+              <div className="mt-1">
+                <Link
+                  to="/outstanding"
+                  className="text-[11px] text-primary hover:underline font-medium inline-flex items-center gap-1"
+                >
+                  View client pendings & ageing →
+                </Link>
+              </div>
             </div>
-            <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
               <ReceiptIndianRupee className="h-5 w-5" />
             </div>
           </CardContent>
@@ -1762,14 +1758,14 @@ function ClearingDeskPage() {
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Client Outlays &amp; Expenses
               </p>
-              <h3 className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
+              <h3 className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
                 {inr(totalReimbursableExpenses)}
               </h3>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Direct client fees &amp; expenses awaiting reimbursement
               </p>
             </div>
-            <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
               <CreditCard className="h-5 w-5" />
             </div>
           </CardContent>
@@ -1847,31 +1843,30 @@ function ClearingDeskPage() {
         columns={[
           {
             key: "payment_code",
-            header: "Receipt #",
-            className: "w-32",
-            sort: (p) => p.payment_code,
-            render: (p) => (
-              <span className="font-mono text-xs font-semibold text-primary">{p.payment_code}</span>
-            ),
-          },
-          {
-            key: "payment_date",
-            header: "Payment Date",
+            header: "Receipt & Date",
             className: "w-28",
             sort: (p) => p.payment_date,
             render: (p) => (
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {fmtDate(p.payment_date)}
-              </span>
+              <div>
+                <span className="font-mono text-xs font-semibold text-primary block leading-tight">
+                  {p.payment_code}
+                </span>
+                <span className="text-[11px] text-muted-foreground whitespace-nowrap block mt-0.5">
+                  {fmtDate(p.payment_date)}
+                </span>
+              </div>
             ),
           },
           {
             key: "client_name",
             header: "Client",
+            className: "min-w-[120px] max-w-[170px]",
             sort: (p) => p.client_name,
             render: (p) => (
               <div>
-                <div className="text-xs font-medium text-foreground">{p.client_name}</div>
+                <div className="text-xs font-medium text-foreground truncate" title={p.client_name}>
+                  {p.client_name}
+                </div>
                 {p.client_code && (
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {p.client_code}
@@ -1882,19 +1877,19 @@ function ClearingDeskPage() {
           },
           {
             key: "job",
-            header: "Origin Job / Cleared Against",
-            className: "min-w-[200px]",
+            header: "Origin / Cleared Against",
+            className: "min-w-[130px] max-w-[180px]",
             sort: (p) => p.job_code ?? p.cleared_jobs?.[0]?.job_code ?? "",
             render: (p) => (
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {p.job_code ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] uppercase font-semibold text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] uppercase font-semibold text-muted-foreground">
                       For:
                     </span>
                     <Badge
                       variant="outline"
-                      className="font-mono text-[11px] font-bold text-primary bg-primary/5 border-primary/20"
+                      className="font-mono text-[10px] font-bold text-primary bg-primary/5 border-primary/20 py-0 px-1.5 h-4.5"
                       title={p.job_title ?? undefined}
                     >
                       {p.job_code}
@@ -1907,15 +1902,15 @@ function ClearingDeskPage() {
                       <Badge
                         key={i}
                         variant="secondary"
-                        className="text-[10px] font-mono bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                        className="text-[9px] font-mono py-0 px-1.5 h-4.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
                         title={`${cj.job_code}: ${cj.title} (${inr(cj.allocated_amount)})`}
                       >
-                        Cleared {cj.job_code} ({inr(cj.allocated_amount)})
+                        {cj.job_code} ({inr(cj.allocated_amount)})
                       </Badge>
                     ))}
                   </div>
                 ) : !p.job_code ? (
-                  <span className="text-[11px] text-muted-foreground font-mono">
+                  <span className="text-[10px] text-muted-foreground font-mono">
                     General Advance
                   </span>
                 ) : null}
@@ -1925,24 +1920,24 @@ function ClearingDeskPage() {
           {
             key: "mode",
             header: "Mode",
-            className: "w-28",
+            className: "w-16",
             render: (p) => (
-              <Badge variant="outline" className="text-[10px] capitalize font-medium">
+              <Badge variant="outline" className="text-[10px] capitalize font-medium py-0 px-1.5 whitespace-nowrap">
                 {MODES[p.mode as keyof typeof MODES] ?? p.mode}
               </Badge>
             ),
           },
           {
             key: "amount",
-            header: "Total Received",
-            className: "w-32 text-right",
+            header: "Total",
+            className: "w-24 text-right",
             sort: (p) => p.amount,
             render: (p) => <span className="font-mono text-xs font-semibold">{inr(p.amount)}</span>,
           },
           {
             key: "allocated_amount",
             header: "Allocated",
-            className: "w-28 text-right",
+            className: "w-20 text-right",
             sort: (p) => p.allocated_amount,
             render: (p) => (
               <span className="font-mono text-xs text-muted-foreground">
@@ -1952,8 +1947,8 @@ function ClearingDeskPage() {
           },
           {
             key: "available_amount",
-            header: "Available to Clear",
-            className: "w-36 text-right",
+            header: "Available",
+            className: "w-24 text-right",
             sort: (p) => p.available_amount,
             render: (p) => (
               <span
@@ -1971,13 +1966,13 @@ function ClearingDeskPage() {
           {
             key: "status",
             header: "Status",
-            className: "w-32 text-center",
+            className: "w-28 text-center",
             render: (p) => {
               if (p.available_amount <= 0) {
                 return (
                   <Badge
                     variant="outline"
-                    className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px]"
+                    className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] py-0 px-1.5 whitespace-nowrap"
                   >
                     Fully Cleared
                   </Badge>
@@ -1987,7 +1982,7 @@ function ClearingDeskPage() {
                 return (
                   <Badge
                     variant="outline"
-                    className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px]"
+                    className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] py-0 px-1.5 whitespace-nowrap"
                   >
                     Partially Allocated
                   </Badge>
@@ -1996,9 +1991,9 @@ function ClearingDeskPage() {
               return (
                 <Badge
                   variant="outline"
-                  className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-[10px]"
+                  className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-[10px] py-0 px-1.5 whitespace-nowrap"
                 >
-                  Unallocated Advance
+                  Unallocated
                 </Badge>
               );
             },
@@ -2006,7 +2001,7 @@ function ClearingDeskPage() {
           {
             key: "action",
             header: "",
-            className: "w-32 text-right",
+            className: "w-20 text-right",
             render: (p) => (
               <Button
                 size="sm"
@@ -2017,7 +2012,7 @@ function ClearingDeskPage() {
                   handleOpenAllocation(p);
                 }}
               >
-                {p.available_amount > 0 ? "Clear / Allocate" : "View"}
+                {p.available_amount > 0 ? "Clear" : "View"}
               </Button>
             ),
           },
@@ -2030,11 +2025,12 @@ function ClearingDeskPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5 text-primary" />
-              Record Payment Entry
+              {recordForm.jobId ? "Record & Clear Job Payment" : "Record Payment Entry"}
             </DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              Add a client deposit or payment. It will be recorded into payment history ready for
-              manual allocation.
+              {recordForm.jobId
+                ? "This payment will automatically clear and settle against the selected job."
+                : "Add a client deposit or payment. It will be recorded into payment history ready for manual allocation."}
             </p>
           </DialogHeader>
 
@@ -2136,7 +2132,11 @@ function ClearingDeskPage() {
                 Cancel
               </Button>
               <Button type="submit" size="sm" disabled={isSavingRecord}>
-                {isSavingRecord ? "Saving…" : "Save Payment Entry"}
+                {isSavingRecord
+                  ? "Saving…"
+                  : recordForm.jobId
+                    ? "Save & Clear Job"
+                    : "Save Payment Entry"}
               </Button>
             </DialogFooter>
           </form>

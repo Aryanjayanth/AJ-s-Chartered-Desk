@@ -21,7 +21,8 @@ import { useClientLookup } from "@/hooks/use-roles";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, FREQS, inr, today } from "@/lib/format";
 import { firstDuePreview, monthLabel, normalizeServiceType } from "@/lib/service-options";
-import { fetchFirmServices } from "@/lib/standard-services";
+import { fetchFirmServices, seedStandardServices } from "@/lib/standard-services";
+import { recordPaymentEntry } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 
 export interface JobServiceRow {
@@ -57,6 +58,90 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
   const [generalNotes, setGeneralNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Persistent storage for custom company / trade names
+  const storageKey = `ca_custom_companies_${currentFirm?.id || "global"}`;
+  const [rememberedCompanies, setRememberedCompanies] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`ca_custom_companies_${currentFirm?.id || "global"}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!currentFirm?.id) return;
+    try {
+      const raw = localStorage.getItem(`ca_custom_companies_${currentFirm.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setRememberedCompanies((prev) => Array.from(new Set([...prev, ...parsed])));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentFirm?.id]);
+
+  // Fetch unique companies previously entered on past jobs
+  const pastCompaniesQuery = useQuery({
+    queryKey: ["past-job-companies", currentFirm?.id],
+    queryFn: async () => {
+      if (!currentFirm?.id) return [];
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("notes")
+        .eq("firm_id", currentFirm.id)
+        .ilike("notes", "%[Company:%")
+        .limit(300);
+      if (error || !data) return [];
+      const found = new Set<string>();
+      for (const j of data) {
+        const match = j.notes?.match(/\[Company:\s*([^\]]+)\]/);
+        if (match?.[1]?.trim()) {
+          found.add(match[1].trim());
+        }
+      }
+      return Array.from(found);
+    },
+    enabled: Boolean(currentFirm?.id),
+  });
+
+  const saveCustomCompany = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setRememberedCompanies((prev) => {
+      if (prev.includes(trimmed)) return prev;
+      const next = [...prev, trimmed];
+      try {
+        localStorage.setItem(`ca_custom_companies_${currentFirm?.id || "global"}`, JSON.stringify(next));
+      } catch (e) {
+        console.warn("Could not save company to localStorage", e);
+      }
+      return next;
+    });
+  };
+
+  const allCompanyOptions = useMemo(() => {
+    const firmList = (userFirms ?? []).filter((f) => Boolean(f?.name));
+    const firmNames = new Set(firmList.map((f) => f.name));
+    if (currentFirm?.name) firmNames.add(currentFirm.name);
+
+    const customList = new Set<string>();
+    for (const c of [...rememberedCompanies, ...(pastCompaniesQuery.data ?? [])]) {
+      const trimmed = c?.trim();
+      if (trimmed && !firmNames.has(trimmed)) {
+        customList.add(trimmed);
+      }
+    }
+
+    return {
+      firms: firmList.length > 0 ? firmList : currentFirm ? [{ id: currentFirm.id, name: currentFirm.name }] : [],
+      customs: Array.from(customList),
+    };
+  }, [userFirms, currentFirm, rememberedCompanies, pastCompaniesQuery.data]);
+
   useEffect(() => {
     if (currentFirm?.id && !selectedFirmId) {
       setSelectedFirmId(currentFirm.id);
@@ -66,10 +151,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
     }
   }, [currentFirm?.id, currentFirm?.name, selectedFirmId, selectedCompanyName]);
 
-  // Fetch active services list (with automatic standard fallback seeding)
+  // Fetch active services list scoped to selected or current firm
+  const activeFirmId = selectedFirmId || currentFirm?.id;
   const servicesQuery = useQuery({
-    queryKey: ["active-services", selectedFirmId, currentFirm?.id],
-    queryFn: () => fetchFirmServices(),
+    queryKey: ["active-services", activeFirmId],
+    queryFn: () => fetchFirmServices(activeFirmId),
+    enabled: Boolean(activeFirmId),
   });
 
   // Fetch client retainers/assignments to auto-populate fees if preconfigured
@@ -373,6 +460,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         const effectiveCompanyName = isCustomCompany
           ? customCompanyName.trim()
           : selectedCompanyName.trim();
+        if (effectiveCompanyName) {
+          saveCustomCompany(effectiveCompanyName);
+        }
         let jobNotes = generalNotes.trim() || null;
         if (effectiveCompanyName && effectiveCompanyName !== currentFirm?.name) {
           jobNotes = jobNotes
@@ -456,36 +546,47 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             console.warn("Could not save initial clearing for job", currentJob.id, clearingErr);
           }
 
-          // If advance was entered, record an actual payment receipt so it reflects in client balance and clearing
+          // If advance was entered, record an actual payment receipt and auto-allocate it to this job!
           if (adv > 0) {
             try {
-              const { data: authData } = await supabase.auth.getUser();
-              const currentUserId = authData?.user?.id ?? null;
-              const payPayload: any = {
-                client_id: clientId,
-                job_id: currentJob.id,
-                amount: adv,
-                mode: "bank",
-                payment_date: taskDate || today(),
-                reference: null,
-                narration: `Advance payment for job ${currentJob.job_code} (${jobTitle})`,
-                created_by: currentUserId,
-              };
-              if (activeFirmId) payPayload.firm_id = activeFirmId;
-              const { error: payErr } = await supabase.from("payments").insert(payPayload);
-              if (payErr) {
+              await recordPaymentEntry({
+                data: {
+                  clientId,
+                  jobId: currentJob.id,
+                  amount: adv,
+                  paymentDate: taskDate || today(),
+                  mode: "bank",
+                  narration: `Advance payment for job ${currentJob.job_code} (${jobTitle})`,
+                  isAdvance: true,
+                  autoAllocate: true,
+                },
+              });
+            } catch (payErr) {
+              // Fallback: direct insert with allocated_amount set so it doesn't leave an unallocated stray receipt
+              try {
+                const { data: authData } = await supabase.auth.getUser();
+                const currentUserId = authData?.user?.id ?? null;
+                const payPayload: any = {
+                  client_id: clientId,
+                  job_id: currentJob.id,
+                  amount: adv,
+                  allocated_amount: adv,
+                  mode: "bank",
+                  payment_date: taskDate || today(),
+                  reference: null,
+                  narration: `Advance payment for job ${currentJob.job_code} (${jobTitle})`,
+                  status: "allocated",
+                  created_by: currentUserId,
+                };
+                if (activeFirmId) payPayload.firm_id = activeFirmId;
+                await supabase.from("payments").insert(payPayload);
+              } catch (fallbackErr) {
                 console.warn(
                   "Could not record advance payment receipt for job",
                   currentJob.id,
-                  payErr,
+                  fallbackErr,
                 );
               }
-            } catch (payErr) {
-              console.warn(
-                "Could not record advance payment receipt for job",
-                currentJob.id,
-                payErr,
-              );
             }
           }
         }
@@ -581,18 +682,21 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                     }}
                     className="text-[11px] text-primary hover:underline font-medium"
                   >
-                    + Custom name
+                    + Enter new name
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => {
                       setIsCustomCompany(false);
-                      setSelectedCompanyName(currentFirm?.name || "");
+                      if (customCompanyName.trim()) {
+                        saveCustomCompany(customCompanyName.trim());
+                        setSelectedCompanyName(customCompanyName.trim());
+                      }
                     }}
                     className="text-[11px] text-muted-foreground hover:underline font-medium"
                   >
-                    Select existing
+                    Back to list
                   </button>
                 )}
               </div>
@@ -601,10 +705,36 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                   <Input
                     value={customCompanyName}
                     onChange={(e) => setCustomCompanyName(e.target.value)}
-                    placeholder="Enter custom company / trade name…"
-                    className="h-9 text-xs"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (customCompanyName.trim()) {
+                          saveCustomCompany(customCompanyName.trim());
+                          setSelectedCompanyName(customCompanyName.trim());
+                          setIsCustomCompany(false);
+                        }
+                      }
+                    }}
+                    placeholder="Enter company / trade name…"
+                    className="h-9 text-xs flex-1"
                     autoFocus
                   />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9 px-2.5 text-xs shrink-0 font-medium"
+                    onClick={() => {
+                      if (customCompanyName.trim()) {
+                        saveCustomCompany(customCompanyName.trim());
+                        setSelectedCompanyName(customCompanyName.trim());
+                        setIsCustomCompany(false);
+                      }
+                    }}
+                    disabled={!customCompanyName.trim()}
+                  >
+                    Save & Select
+                  </Button>
                 </div>
               ) : (
                 <NativeSelect
@@ -619,22 +749,31 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                       const matchedFirm = userFirms?.find((f) => f.name === val);
                       if (matchedFirm) {
                         setSelectedFirmId(matchedFirm.id);
+                      } else {
+                        setSelectedFirmId(currentFirm?.id ?? "");
                       }
                     }
                   }}
                   className="h-9 text-xs font-medium"
                 >
-                  {userFirms && userFirms.length > 0 ? (
-                    userFirms.map((f) => (
+                  <optgroup label="Practice Firms">
+                    {allCompanyOptions.firms.map((f) => (
                       <option key={f.id} value={f.name}>
                         {f.name} {f.id === currentFirm?.id ? "(Default)" : ""}
                       </option>
-                    ))
-                  ) : (
-                    <option value={currentFirm?.name || "Fusion Prime"}>
-                      {currentFirm?.name || "Fusion Prime"}
-                    </option>
+                    ))}
+                  </optgroup>
+
+                  {allCompanyOptions.customs.length > 0 && (
+                    <optgroup label="Saved Companies / Entities">
+                      {allCompanyOptions.customs.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </optgroup>
                   )}
+
                   <option value="__custom__">+ Enter another company name…</option>
                 </NativeSelect>
               )}
@@ -743,8 +882,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                             variant="outline"
                             className="text-xs h-7"
                             onClick={async () => {
-                              await fetchFirmServices();
-                              qc.invalidateQueries({ queryKey: ["active-services"] });
+                              await seedStandardServices(activeFirmId);
+                              qc.invalidateQueries({ queryKey: ["active-services", activeFirmId] });
                             }}
                           >
                             Load Standard CA Services

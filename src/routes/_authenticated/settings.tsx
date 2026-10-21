@@ -161,7 +161,7 @@ function SettingsPage() {
                 Registered Firms &amp; Practice Entities
               </CardTitle>
               <CardDescription className="text-xs mt-1">
-                All CA practice firms registered under your account. Switch between firms or
+                All practice firms registered under your AJ's Chartered Desk account. Switch between firms or
                 register additional legal entities.
               </CardDescription>
             </div>
@@ -427,7 +427,7 @@ function RegisterFirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Register New CA Practice / Firm Entity</DialogTitle>
+          <DialogTitle>Register New Firm Entity — AJ's Chartered Desk</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 pt-2">

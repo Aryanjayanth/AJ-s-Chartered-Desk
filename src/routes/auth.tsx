@@ -22,7 +22,7 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in — AJ's Chartered Desk" },
       {
         name: "description",
-        content: "Practice management and billing for Chartered Accountants by Aryan Jayanth.",
+        content: "Practice management and billing for Chartered Accountants — AJ's Chartered Desk.",
       },
       { property: "og:title", content: "Sign in — AJ's Chartered Desk" },
       {

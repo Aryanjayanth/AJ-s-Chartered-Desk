@@ -116,7 +116,7 @@ function OutstandingPage() {
       });
       return acc;
     }, {}),
-  );
+  ).sort((a, b) => b.out - a.out);
 
   return (
     <div>

@@ -93,8 +93,8 @@ export const STANDARD_SERVICES_LIST = [
   },
 ];
 
-export async function fetchFirmServices() {
-  const { data, error } = await supabase
+export async function fetchFirmServices(firmId?: string) {
+  let query = supabase
     .from("services")
     .select(
       "id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code, firm_id",
@@ -102,29 +102,41 @@ export async function fetchFirmServices() {
     .eq("active", true)
     .order("name");
 
+  if (firmId) {
+    query = query.eq("firm_id", firmId);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
     console.warn("Error fetching services:", error);
     return [];
   }
 
-  if (data && data.length > 0) {
-    return data;
-  }
+  return data ?? [];
+}
 
-  // If firm has no services defined yet, auto-seed the standard CA practice list
-  try {
-    const { data: inserted, error: insertError } = await supabase
-      .from("services")
-      .insert(STANDARD_SERVICES_LIST)
-      .select(
-        "id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code",
-      );
+/**
+ * Explicitly loads standard CA practice services into a firm.
+ * Must only be called upon explicit user request (e.g. clicking 'Load Standard Services'),
+ * never automatically, to ensure firm data isolation.
+ */
+export async function seedStandardServices(firmId?: string) {
+  const payload = STANDARD_SERVICES_LIST.map((svc) => ({
+    ...svc,
+    ...(firmId ? { firm_id: firmId } : {}),
+  }));
 
-    if (!insertError && inserted && inserted.length > 0) {
-      return inserted;
-    }
-  } catch (err) {
-    console.warn("Could not auto-seed services:", err);
+  const { data, error } = await supabase
+    .from("services")
+    .insert(payload)
+    .select(
+      "id, name, service_type, billing_type, frequency, auto_invoice, active, description, service_code, firm_id",
+    );
+
+  if (error) {
+    console.error("Could not seed standard services:", error);
+    throw error;
   }
 
   return data ?? [];

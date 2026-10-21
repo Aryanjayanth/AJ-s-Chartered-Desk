@@ -12,7 +12,17 @@ import {
   Plus,
   Trash2,
   Sparkles,
+  Check,
+  RefreshCw,
+  MoreVertical,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -350,6 +360,25 @@ function JobDetail() {
     qc.invalidateQueries();
   };
 
+  const markJobDone = async (completed: boolean) => {
+    if (!canEdit("jobs")) return toast.error("You cannot change job status");
+    const newStatus = completed ? "completed" : "in_progress";
+    const { error } = await supabase.rpc("update_job_status", {
+      _job_id: id,
+      _status: newStatus,
+      _reason: completed ? "Marked as completed" : "Reopened job to In Progress",
+    });
+    if (error) return toast.error(errMsg(error));
+    toast.success(
+      completed
+        ? "Job marked as Completed! Moving to Payment Clearing."
+        : "Job reopened to In Progress",
+    );
+    qc.invalidateQueries({ queryKey: ["job", id] });
+    qc.invalidateQueries({ queryKey: ["jobs-list"] });
+    qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
+  };
+
   const raiseInvoiceNow = async () => {
     setRaising(true);
     const linkedPaymentId = payQ.data?.[0]?.id || null;
@@ -454,19 +483,73 @@ function JobDetail() {
                 ) : (
                   <StatusBadge status={job.financial_status} />
                 )}
-                {canDelete("jobs") && !inv && job.financial_status !== "closed" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto text-destructive hover:bg-destructive hover:text-destructive-foreground h-7 text-xs"
-                    onClick={() => setDeleteOpen(true)}
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    Delete Job
-                  </Button>
+                {/* Prominent Mark as Done / Reopen Button + Safe Dropdown for Delete */}
+                <div className="ml-auto flex items-center gap-2">
+                  {canEdit("jobs") &&
+                    (job.status !== "completed" ? (
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-sm"
+                        onClick={() => markJobDone(true)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Mark as Done
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground gap-1.5"
+                        onClick={() => markJobDone(false)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Reopen Job
+                      </Button>
+                    ))}
+
+                  {canDelete("jobs") && !inv && job.financial_status !== "closed" && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="More options"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive cursor-pointer gap-2"
+                          onClick={() => setDeleteOpen(true)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete Job</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <h1
+                  className={cn(
+                    "text-2xl font-semibold transition-all",
+                    job.status === "completed"
+                      ? "line-through text-muted-foreground/75"
+                      : "text-foreground",
+                  )}
+                >
+                  {job.title}
+                </h1>
+                {job.status === "completed" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <Check className="h-3 w-3" />
+                    Completed
+                  </span>
                 )}
               </div>
-              <h1 className="mt-1 text-2xl font-semibold">{job.title}</h1>
               <Link
                 to="/clients/$id"
                 params={{ id: job.client_id }}
@@ -872,33 +955,38 @@ function JobDetail() {
                 <span className="font-mono">{job.job_code}</span>
               </div>
               <div className="flex items-start justify-between">
-                <span className="text-muted-foreground">Payment</span>
-                {payQ.data?.length ? (
-                  <div className="text-right text-xs space-y-1.5">
-                    {payQ.data.map((p) => (
-                      <div key={p.id} className="space-y-0.5">
-                        <Link
-                          to="/clearing"
-                          search={{ client: job.client_id, payment: p.id, job: id }}
-                          className="font-mono text-primary font-semibold underline underline-offset-2 hover:opacity-80"
-                        >
-                          {p.payment_code}
-                        </Link>
-                        <div className="text-[11px] text-muted-foreground">
-                          {inr(p.amount)} · {p.status === "allocated" ? "Cleared" : label(p.status)}
+                <span className="text-muted-foreground">Payments</span>
+                <div className="text-right text-xs space-y-1.5">
+                  {payQ.data && payQ.data.length > 0 && (
+                    <div className="space-y-1">
+                      {payQ.data.map((p) => (
+                        <div key={p.id} className="space-y-0.5">
+                          <Link
+                            to="/clearing"
+                            search={{ client: job.client_id, payment: p.id, job: id }}
+                            className="font-mono text-primary font-semibold underline underline-offset-2 hover:opacity-80"
+                          >
+                            {p.payment_code}
+                          </Link>
+                          <div className="text-[11px] text-muted-foreground">
+                            {inr(p.amount)} ·{" "}
+                            {p.status === "allocated" ? "Cleared" : label(p.status)}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Link
-                    to="/clearing"
-                    search={{ client: job.client_id, job: id }}
-                    className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
-                  >
-                    Clear Payment
-                  </Link>
-                )}
+                      ))}
+                    </div>
+                  )}
+
+                  {job.financial_status !== "closed" && (
+                    <Link
+                      to="/clearing"
+                      search={{ client: job.client_id, job: id }}
+                      className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 font-medium text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      <span>Clear Balance</span>
+                    </Link>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Invoice</span>

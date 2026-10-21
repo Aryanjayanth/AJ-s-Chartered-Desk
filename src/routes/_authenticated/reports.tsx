@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DataTable } from "@/components/app/DataTable";
 import { ClientSelect, Field, NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
 import { useRoles } from "@/hooks/use-roles";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { ReportCharts } from "@/components/app/ReportCharts";
 import {
   ageingBucket,
@@ -55,6 +56,7 @@ type Row = Record<string, string | number> & { id: string };
 
 function ReportsPage() {
   const { isFinance, isManager, loading } = useRoles();
+  const { data: currentFirm } = useCurrentFirm();
   const [r, setR] = useState(REPORTS[0]);
   const [f, setF] = useState({ from: "", to: "", client: "", service: "" });
   const [activeRange, setActiveRange] = useState<string>("ALL");
@@ -75,8 +77,8 @@ function ReportsPage() {
     }));
   };
   const q = useQuery({
-    queryKey: ["report-data"],
-    enabled: isFinance,
+    queryKey: ["report-data", currentFirm?.id],
+    enabled: isFinance && Boolean(currentFirm?.id),
     queryFn: async () => {
       const [c, s, j, h, i, p, a, b, au] = await Promise.all([
         supabase.from("clients").select("*"),

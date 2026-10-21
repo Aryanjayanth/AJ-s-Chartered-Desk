@@ -1,4 +1,0 @@
-revoke execute on all functions in schema public from anon, public;
-revoke execute on function public.handle_new_user(), public.audit_trigger(), public.job_status_trigger(), public.validate_allocation(), public.after_allocation(), public.recalc_invoice(uuid), public.recalc_payment(uuid) from authenticated;
-grant execute on function public.has_role(uuid, app_role), public.is_manager(), public.is_finance(), public.is_staff_plus(), public.is_cashier(), public.allocate_payment(uuid, jsonb), public.reverse_allocation(uuid, text), public.reverse_payment(uuid, text), public.update_job_status(uuid, text, text), public.create_invoice(uuid, uuid[], date, date, numeric, text, numeric, text, text, numeric), public.cancel_invoice(uuid, text), public.generate_recurring_jobs(date), public.client_lookup(), public.my_roles() to authenticated;
-alter default privileges in schema public revoke execute on functions from anon, public;

@@ -123,8 +123,12 @@ export function AppSidebar() {
           to={isPlatformMode ? "/admin" : "/dashboard"}
           className="flex items-center gap-2.5 rounded-md p-1 transition-colors hover:bg-sidebar-accent/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
-            <img src="/logo.png" alt="AJ's Chartered Desk" className="h-6 w-6 object-contain" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md overflow-hidden bg-primary/5">
+            {!isPlatformMode && firm?.logo_url ? (
+              <img src={firm.logo_url} alt={firm.name} className="h-full w-full object-contain" />
+            ) : (
+              <img src="/logo.png" alt="AJ's Chartered Desk" className="h-6 w-6 object-contain" />
+            )}
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1">

@@ -205,98 +205,6 @@ function TasksPage() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [jobsList]);
 
-  // Toggle checklist subtask directly in Supabase and sync job status
-  const handleToggleSubtask = async (subtask: SubtaskRow) => {
-    if (!canEdit("jobs")) {
-      toast.error("Not authorised to edit tasks");
-      return;
-    }
-    const job = jobsList.find((j) => j.id === subtask.jobId);
-    if (!job) return;
-
-    let updatedChecklist: ChecklistItem[] = [];
-    const hasExistingChecklist = Array.isArray(job.checklist) && job.checklist.length > 0;
-
-    const nextDone = !subtask.done;
-    if (hasExistingChecklist) {
-      updatedChecklist = job.checklist.map((it, idx) =>
-        idx === subtask.itemIndex ? { ...it, done: nextDone } : it,
-      );
-    } else {
-      updatedChecklist = [{ label: subtask.label, done: nextDone }];
-    }
-
-    const allDone = updatedChecklist.length > 0 && updatedChecklist.every((it) => it.done);
-    const anyDone = updatedChecklist.some((it) => it.done);
-    const doneCount = updatedChecklist.filter((it) => it.done).length;
-    const totalCount = updatedChecklist.length;
-
-    // Direct update to jobs table to persist checklist and status immediately
-    const jobUpdates: Record<string, any> = {
-      checklist: updatedChecklist,
-    };
-    if (allDone) {
-      jobUpdates.status = "completed";
-      jobUpdates.completed_at = new Date().toISOString();
-    } else if (!nextDone && job.status === "completed") {
-      jobUpdates.status = "in_progress";
-      jobUpdates.completed_at = null;
-    } else if (job.status === "pending" && (nextDone || anyDone)) {
-      jobUpdates.status = "in_progress";
-    }
-
-    const { error } = await supabase
-      .from("jobs")
-      .update(jobUpdates as never)
-      .eq("id", job.id);
-
-    if (error) {
-      toast.error(errMsg(error));
-      return;
-    }
-
-    // Auto-advance or revert job status via RPC to trigger audit logs and auto-invoicing
-    if (allDone && job.status !== "completed") {
-      await supabase.rpc("update_job_status", {
-        _job_id: job.id,
-        _status: "completed",
-        _reason: `All ${totalCount} checklist tasks completed (${doneCount}/${totalCount})`,
-      });
-      toast.success(
-        `All ${totalCount} tasks completed! Job "${job.job_code}" marked as done & moved to Clearing Desk.`,
-      );
-    } else if (!nextDone && job.status === "completed") {
-      await supabase.rpc("update_job_status", {
-        _job_id: job.id,
-        _status: "in_progress",
-        _reason: "Checklist subtask reopened",
-      });
-      toast.info(`Task reopened — Job "${job.job_code}" returned to In Progress`);
-    } else if (job.status === "pending" && (nextDone || anyDone)) {
-      await supabase.rpc("update_job_status", {
-        _job_id: job.id,
-        _status: "in_progress",
-        _reason: "Checklist subtask started",
-      });
-      toast.success(
-        `Marked "${subtask.label}" done (${doneCount}/${totalCount}) — Job in progress`,
-      );
-    } else {
-      toast.success(
-        nextDone
-          ? `Marked "${subtask.label}" done (${doneCount}/${totalCount})`
-          : `Marked "${subtask.label}" pending (${doneCount}/${totalCount})`,
-      );
-    }
-
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["jobs"] }),
-      qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
-      qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
-      qc.invalidateQueries({ queryKey: ["clearing-v2-jobs"] }),
-    ]);
-  };
-
   // Filtered Subtasks
   const filteredSubtasks = useMemo(() => {
     return subtasksList.filter((st) => {
@@ -797,17 +705,14 @@ function TasksPage() {
               className: "w-28",
               sort: (st) => (st.done ? "Completed" : "Pending"),
               render: (st) => (
-                <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleSubtask(st)}
+                <div className="flex items-center">
+                  <span
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors cursor-pointer",
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border select-none",
                       st.done
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20",
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
                     )}
-                    title={st.done ? "Click to reopen task" : "Click to mark done"}
                   >
                     {st.done ? (
                       <>
@@ -820,7 +725,7 @@ function TasksPage() {
                         <span>Pending</span>
                       </>
                     )}
-                  </button>
+                  </span>
                 </div>
               ),
             },
@@ -923,43 +828,46 @@ function TasksPage() {
           bulkActions={(selected, clearSelection) => (
             <div className="flex items-center gap-2">
               {canEdit("jobs") && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="default" className="h-8 text-xs font-medium">
-                      Mark as…
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => handleBulkStatus(selected, "completed", clearSelection)}
-                      className="cursor-pointer gap-2"
-                    >
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Completed</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => handleBulkStatus(selected, "in_progress", clearSelection)}
-                      className="cursor-pointer gap-2"
-                    >
-                      <Clock className="h-3.5 w-3.5 text-blue-600" />
-                      <span>In Progress</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => handleBulkStatus(selected, "on_hold", clearSelection)}
-                      className="cursor-pointer gap-2"
-                    >
-                      <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
-                      <span>On Hold</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => handleBulkStatus(selected, "cancelled", clearSelection)}
-                      className="cursor-pointer gap-2 text-destructive"
-                    >
-                      <XCircle className="h-3.5 w-3.5" />
-                      <span>Cancelled</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+                    onClick={() => handleBulkStatus(selected, "completed", clearSelection)}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Mark Done ({selected.length})
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" className="h-8 text-xs font-medium">
+                        Status…
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => handleBulkStatus(selected, "in_progress", clearSelection)}
+                        className="cursor-pointer gap-2"
+                      >
+                        <Clock className="h-3.5 w-3.5 text-blue-600" />
+                        <span>In Progress</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleBulkStatus(selected, "on_hold", clearSelection)}
+                        className="cursor-pointer gap-2"
+                      >
+                        <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
+                        <span>On Hold</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleBulkStatus(selected, "cancelled", clearSelection)}
+                        className="cursor-pointer gap-2 text-destructive"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                        <span>Cancelled</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
               )}
 
               {canDelete("jobs") && (
@@ -1071,7 +979,18 @@ function TasksPage() {
               key: "title",
               header: "Job Title",
               sort: (j) => j.title,
-              render: (j) => <span className="font-medium text-foreground">{j.title}</span>,
+              render: (j) => (
+                <span
+                  className={cn(
+                    "font-medium transition-all",
+                    j.status === "completed"
+                      ? "line-through text-muted-foreground/75"
+                      : "text-foreground",
+                  )}
+                >
+                  {j.title}
+                </span>
+              ),
             },
             {
               key: "client",

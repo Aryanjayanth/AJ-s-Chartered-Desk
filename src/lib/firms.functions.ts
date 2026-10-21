@@ -764,6 +764,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
       mode: z.string().default("bank"),
       narration: z.string().optional(),
       isAdvance: z.boolean().default(true),
+      autoAllocate: z.boolean().default(true).optional(),
     }),
   )
   .handler(async ({ data, context }) => {
@@ -815,7 +816,111 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
       .single();
 
     if (error) throw new Error(error.message);
-    return { success: true, payment: pay };
+
+    // Auto-allocate directly to the job if jobId is provided
+    let allocatedToJob = 0;
+    let remainingCredit = data.amount;
+
+    if (data.jobId && data.autoAllocate !== false) {
+      const { data: job } = await supabaseAdmin
+        .from("jobs")
+        .select(
+          "id, job_code, fee, discount, net_amount, financial_status, invoice_items(invoice_id, invoices(*)), job_clearing(advance, discount)",
+        )
+        .eq("id", data.jobId)
+        .single();
+
+      if (job && job.financial_status !== "closed") {
+        const curFee = Number(job.fee || 0);
+        const curDisc = Number(job.discount || 0);
+        const curNet = Number(job.net_amount || Math.max(0, curFee - curDisc));
+
+        const clearingRec = Array.isArray(job.job_clearing) ? job.job_clearing[0] : job.job_clearing;
+        const priorAdv = Number(clearingRec?.advance || 0);
+
+        const activeInvs = ((job.invoice_items as any[]) ?? [])
+          .map((it: any) => it.invoices)
+          .filter((inv: any) => inv && inv.status !== "cancelled");
+        const existingInv = activeInvs?.[0];
+
+        const curBaseDue = existingInv
+          ? Math.max(0, Number(existingInv.total || 0) - Number(existingInv.amount_paid || 0))
+          : Math.max(0, curNet - priorAdv);
+
+        allocatedToJob = Math.min(data.amount, curBaseDue);
+        remainingCredit = Math.max(0, data.amount - allocatedToJob);
+
+        if (allocatedToJob > 0) {
+          const payStatus = remainingCredit > 0.01 ? "partially_allocated" : "allocated";
+
+          await supabaseAdmin
+            .from("payments")
+            .update({
+              allocated_amount: allocatedToJob,
+              status: payStatus,
+            })
+            .eq("id", pay.id);
+
+          if (existingInv) {
+            const newPaid = Number(existingInv.amount_paid || 0) + allocatedToJob;
+            const newStatus =
+              newPaid >= Number(existingInv.total || 0) - 0.01 ? "paid" : "partial";
+            await supabaseAdmin
+              .from("invoices")
+              .update({ amount_paid: newPaid, status: newStatus })
+              .eq("id", existingInv.id);
+
+            await supabaseAdmin.from("payment_allocations").insert({
+              firm_id: client.firm_id,
+              payment_id: pay.id,
+              invoice_id: existingInv.id,
+              amount: allocatedToJob,
+              notes: `Auto-allocated from payment receipt ${pay.payment_code}`,
+            });
+
+            if (newStatus === "paid") {
+              await supabaseAdmin
+                .from("jobs")
+                .update({ financial_status: "closed" })
+                .eq("id", job.id);
+            }
+          }
+
+          const newTotalAdvance = priorAdv + allocatedToJob;
+          const isSquaredOff = curBaseDue - allocatedToJob <= 0.01;
+
+          await supabaseAdmin.from("job_clearing").upsert(
+            {
+              job_id: job.id,
+              firm_id: client.firm_id,
+              advance: newTotalAdvance,
+              gross_fee: curFee,
+              discount: curDisc,
+              final_amount: Math.max(0, curFee - curDisc - newTotalAdvance),
+              status: isSquaredOff ? "squared_off" : "draft",
+              squared_off_at: isSquaredOff ? new Date().toISOString() : null,
+              squared_off_by: isSquaredOff ? context.userId : null,
+              notes: `Advance payment ${pay.payment_code} recorded & allocated`,
+            },
+            { onConflict: "job_id" },
+          );
+
+          if (isSquaredOff && !existingInv) {
+            await supabaseAdmin
+              .from("jobs")
+              .update({ financial_status: "closed" })
+              .eq("id", job.id);
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      payment: pay,
+      allocatedToJob,
+      remainingCredit,
+    };
   });
 
 export const manualAllocatePayment = createServerFn({ method: "POST" })

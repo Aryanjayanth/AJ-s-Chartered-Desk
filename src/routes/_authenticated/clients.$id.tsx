@@ -21,6 +21,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { ClientForm } from "@/components/app/ClientForm";
 import { EntityAvatar } from "@/components/app/EntityAvatar";
 import { useProfiles, useRoles } from "@/hooks/use-roles";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { readList } from "@/lib/supabase-read";
 import { firstDuePreview, monthLabel } from "@/lib/service-options";
@@ -784,11 +785,18 @@ function LinkServiceDialog({
   clientId: string;
 }) {
   const qc = useQueryClient();
+  const { data: currentFirm } = useCurrentFirm();
   const { data: profiles } = useProfiles();
   const svcs = useQuery({
-    queryKey: ["services"],
-    queryFn: async () =>
-      (await supabase.from("services").select("*").eq("active", true).order("name")).data ?? [],
+    queryKey: ["services-active", currentFirm?.id],
+    queryFn: async () => {
+      let query = supabase.from("services").select("*").eq("active", true).order("name");
+      if (currentFirm?.id) {
+        query = query.eq("firm_id", currentFirm.id);
+      }
+      return (await query).data ?? [];
+    },
+    enabled: Boolean(currentFirm?.id),
   });
   const [f, setF] = useState({
     service_id: "",

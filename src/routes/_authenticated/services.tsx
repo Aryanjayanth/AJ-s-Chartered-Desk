@@ -25,7 +25,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, fmtDate, inr } from "@/lib/format";
 import { RECURRING_FREQS, SERVICE_TYPES } from "@/lib/service-options";
-import { fetchFirmServices } from "@/lib/standard-services";
+import { fetchFirmServices, seedStandardServices } from "@/lib/standard-services";
 
 export const Route = createFileRoute("/_authenticated/services")({
   head: () => ({
@@ -55,6 +55,7 @@ function ServicesPage() {
   const { canCreate, canEdit, canDelete } = usePermissions();
   const qc = useQueryClient();
   const { data: userFirms } = useUserFirms();
+  const { data: currentFirm } = useCurrentFirm();
   const [editing, setEditing] = useState<Svc | "new" | null>(null);
   const [serviceToDelete, setServiceToDelete] = useState<Svc | null>(null);
 
@@ -70,16 +71,17 @@ function ServicesPage() {
       }
     } else {
       toast.success(`Service "${service.name}" deleted successfully`);
-      qc.invalidateQueries({ queryKey: ["services-all"] });
+      qc.invalidateQueries({ queryKey: ["services-all", currentFirm?.id] });
     }
   };
 
   const q = useQuery({
-    queryKey: ["services-all"],
+    queryKey: ["services-all", currentFirm?.id],
     queryFn: async () => {
-      const data = await fetchFirmServices();
+      const data = await fetchFirmServices(currentFirm?.id);
       return (data ?? []) as Svc[];
     },
+    enabled: Boolean(currentFirm?.id),
   });
 
   // Live counts so the chips can be appended with whatever exists beyond the
@@ -130,9 +132,9 @@ function ServicesPage() {
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    await fetchFirmServices();
-                    await qc.invalidateQueries({ queryKey: ["services-all"] });
-                    toast.success("Standard CA practice services loaded");
+                    await seedStandardServices(currentFirm?.id);
+                    await qc.invalidateQueries({ queryKey: ["services-all", currentFirm?.id] });
+                    toast.success("Standard Chartered Desk practice services loaded");
                   }}
                 >
                   Load Standard Services

@@ -26,6 +26,7 @@ import {
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useClientLookup } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
+import { recordPaymentEntry } from "@/lib/firms.functions";
 import { readList } from "@/lib/supabase-read";
 import { downloadCsv, errMsg, fmtDate, inr, MODES, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -140,37 +141,53 @@ function PaymentsPage() {
   // Save Payment
   const savePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canCreate("payments")) return toast.error("You do not have permission to record payments");
+    if (!canCreate("payments"))
+      return toast.error("You do not have permission to record payments");
     if (!payClientId) return toast.error("Please select a client");
     const amt = Number(payForm.amount);
     if (!(amt > 0)) return toast.error("Amount must be greater than zero");
     if (payForm.payment_date > today()) return toast.error("Payment date can't be in the future");
 
     setPayBusy(true);
-    const { error } = await supabase.from("payments").insert({
-      client_id: payClientId,
-      job_id: payForm.job_id || null,
-      amount: amt,
-      mode: payForm.mode,
-      payment_date: payForm.payment_date,
-      reference: null,
-      narration: payForm.narration.trim() || null,
-      created_by: user.id,
-    });
-    setPayBusy(false);
-    if (error) return toast.error(errMsg(error));
-    toast.success("Payment recorded successfully", {
-      description: payForm.job_id
-        ? "Recorded and linked to job. Ready for clearing."
-        : "Recorded as General Client Deposit Balance.",
-      action: {
-        label: "View History",
-        onClick: () => setView("history"),
-      },
-    });
-    setPayForm(emptyPayment);
-    setPayClientId("");
-    qc.invalidateQueries();
+    try {
+      const res = await recordPaymentEntry({
+        data: {
+          clientId: payClientId,
+          jobId: payForm.job_id || null,
+          amount: amt,
+          paymentDate: payForm.payment_date,
+          mode: payForm.mode,
+          narration: payForm.narration.trim() || undefined,
+          isAdvance: true,
+          autoAllocate: true,
+        },
+      });
+
+      setPayBusy(false);
+      if (payForm.job_id && res.allocatedToJob && res.allocatedToJob > 0) {
+        if (res.remainingCredit && res.remainingCredit > 0) {
+          toast.success(
+            `Payment of ${inr(amt)} recorded: ${inr(res.allocatedToJob)} cleared against job, and remaining ${inr(res.remainingCredit)} is stored as client credit!`,
+          );
+        } else {
+          toast.success(`Payment of ${inr(amt)} recorded and cleared against job!`);
+        }
+      } else {
+        toast.success("Payment recorded successfully", {
+          description: "Recorded as General Client Deposit Balance.",
+          action: {
+            label: "View History",
+            onClick: () => setView("history"),
+          },
+        });
+      }
+      setPayForm(emptyPayment);
+      setPayClientId("");
+      qc.invalidateQueries();
+    } catch (err) {
+      setPayBusy(false);
+      toast.error(errMsg(err));
+    }
   };
 
   const reversePayment = async (reason: string) => {
@@ -242,7 +259,7 @@ function PaymentsPage() {
                 ))}
               </NativeSelect>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Linking to a job attributes this receipt to the job and allows 1-click clearing.
+                Automatically clears against this job up to its required fee. Any excess amount stays in client credit balance for future clearing.
               </p>
             </Field>
           )}

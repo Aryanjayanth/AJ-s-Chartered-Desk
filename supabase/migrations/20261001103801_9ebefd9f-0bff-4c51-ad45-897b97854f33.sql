@@ -1,2 +1,0 @@
-revoke execute on function public.is_super_admin(), public.current_firm_id(), public.set_acting_firm(uuid), public.create_firm(text,text,text,text,text), public.firm_overview(), public.firm_guard(text,uuid), public.protect_profile_firm() from public, anon;
-revoke execute on function public.protect_profile_firm(), public.firm_guard(text,uuid) from authenticated;
