@@ -7,14 +7,11 @@ import {
   ArrowLeft,
   ExternalLink,
   Receipt,
-  CheckCircle2,
-  ListChecks,
-  Plus,
   Trash2,
-  Sparkles,
   Check,
   RefreshCw,
   MoreVertical,
+  Pencil,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -42,8 +39,15 @@ import {
   jobDisplayStatus,
   label,
 } from "@/lib/format";
-import { clearingLabel, isWorkflow, STAGES, type WorkflowStages } from "@/lib/job-workflow";
-import type { Json } from "@/integrations/supabase/types";
+import { clearingLabel } from "@/lib/job-workflow";
+
+function stripSystemNotes(notes: string | null | undefined): string {
+  if (!notes) return "";
+  return notes
+    .replace(/\[Company:\s*[^\]]+\]/gi, "")
+    .replace(/\[Batch:\s*[^\]]+\]/gi, "")
+    .trim();
+}
 
 export const Route = createFileRoute("/_authenticated/jobs/$id")({
   head: () => ({
@@ -63,8 +67,9 @@ function JobDetail() {
     if (id === "new") navigate({ to: "/jobs" });
   }, [id, navigate]);
   const { isFinance } = useRoles();
-  const { canEdit, canDelete, canSeeAmounts } = usePermissions();
+  const { canEdit, canUpdate, canDelete, canSeeAmounts } = usePermissions();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const { data: profiles } = useProfiles();
   const pname = (u: string | null) => profiles?.find((p) => p.id === u)?.full_name ?? "System";
 
@@ -182,137 +187,7 @@ function JobDetail() {
     fee: "",
     discount: "",
   });
-  const [checklist, setChecklist] = useState<WorkflowStages | null>(null);
-  const [newItemText, setNewItemText] = useState("");
-  const [raising, setRaising] = useState(false);
   const job = q.data?.job;
-
-  // checklist is a jsonb array of { label, done }. Normalise defensively since
-  // it is user-editable data that predates any schema guarantee.
-  const rawItems = useMemo(() => {
-    const c = job?.checklist;
-    return Array.isArray(c) ? (c as Json[]) : [];
-  }, [job?.checklist]);
-  const items = useMemo(
-    () =>
-      rawItems.map((it) => {
-        const o = (it ?? {}) as {
-          id?: unknown;
-          label?: unknown;
-          done?: unknown;
-          fee?: unknown;
-          service_id?: unknown;
-        };
-        return {
-          id: typeof o.id === "string" ? o.id : undefined,
-          label: typeof o.label === "string" ? o.label : "",
-          done: o.done === true,
-          fee: typeof o.fee === "number" ? o.fee : undefined,
-          service_id: typeof o.service_id === "string" ? o.service_id : undefined,
-        };
-      }),
-    [rawItems],
-  );
-  const toggleItem = async (idx: number) => {
-    const next = items.map((it, i) => (i === idx ? { ...it, done: !it.done } : it));
-    setChecklist(
-      next.reduce<WorkflowStages>(
-        (acc, it) => ({ ...acc, [it.label]: it.done }),
-        {} as WorkflowStages,
-      ),
-    );
-    const { error } = await supabase.from("jobs").update({ checklist: next }).eq("id", id);
-    if (error) {
-      toast.error(errMsg(error));
-      setChecklist(null);
-    } else {
-      const allDone = next.length > 0 && next.every((it) => it.done);
-      const nextDone = next[idx].done;
-
-      if (allDone && job?.status !== "completed") {
-        await supabase.rpc("update_job_status", {
-          _job_id: id,
-          _status: "completed",
-          _reason: "All checklist items completed",
-        });
-        toast.success("All checklist steps completed — Job marked Completed!");
-      } else if (!nextDone && job?.status === "completed") {
-        await supabase.rpc("update_job_status", {
-          _job_id: id,
-          _status: "in_progress",
-          _reason: "Checklist step reopened",
-        });
-        toast.info("Checklist step reopened — Job returned to In Progress");
-      } else if (job?.status === "pending" && nextDone) {
-        await supabase.rpc("update_job_status", {
-          _job_id: id,
-          _status: "in_progress",
-          _reason: "Checklist started",
-        });
-      }
-
-      qc.invalidateQueries({ queryKey: ["job", id] });
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
-    }
-  };
-
-  const addItem = async () => {
-    const text = newItemText.trim();
-    if (!text) return;
-    const next = [...items, { label: text, done: false }];
-    const { error } = await supabase.from("jobs").update({ checklist: next }).eq("id", id);
-    if (error) {
-      toast.error(errMsg(error));
-    } else {
-      setNewItemText("");
-      qc.invalidateQueries({ queryKey: ["job", id] });
-    }
-  };
-
-  const deleteItem = async (idx: number) => {
-    const next = items.filter((_, i) => i !== idx);
-    const { error } = await supabase.from("jobs").update({ checklist: next }).eq("id", id);
-    if (error) {
-      toast.error(errMsg(error));
-    } else {
-      qc.invalidateQueries({ queryKey: ["job", id] });
-    }
-  };
-
-  const loadStandardChecklist = async () => {
-    const standardSteps = [
-      { label: "Client Data & Documents Received", done: false },
-      { label: "Data Verification & Draft Computation", done: false },
-      { label: "Client Review & Approval", done: false },
-      { label: "Challan / Tax Paid (if applicable)", done: false },
-      { label: "Filed on Government Portal", done: false },
-      { label: "Acknowledgement & Final Copy Shared", done: false },
-    ];
-    const { error } = await supabase.from("jobs").update({ checklist: standardSteps }).eq("id", id);
-    if (error) {
-      toast.error(errMsg(error));
-    } else {
-      toast.success("Standard compliance checklist loaded");
-      qc.invalidateQueries({ queryKey: ["job", id] });
-    }
-  };
-
-  const markJobCompletedFromChecklist = async () => {
-    if (!canEdit("jobs")) return toast.error("Not authorised");
-    const { error } = await supabase.rpc("update_job_status", {
-      _job_id: id,
-      _status: "completed",
-      _reason: "Checklist completed",
-    });
-    if (error) return toast.error(errMsg(error));
-    toast.success("Job marked as Completed! Moving to Payment Clearing.");
-    qc.invalidateQueries();
-    navigate({
-      to: "/clearing",
-      search: { client: job?.client_id, job: id },
-    });
-  };
 
   useEffect(() => {
     if (job) {
@@ -321,7 +196,7 @@ function JobDetail() {
         firm_id: job.firm_id ?? "",
         due_date: job.due_date ?? "",
         assigned_staff: job.assigned_staff ?? "",
-        notes: job.notes ?? "",
+        notes: stripSystemNotes(job.notes),
         fee: String(job.fee),
         discount: String(job.discount),
       });
@@ -369,40 +244,17 @@ function JobDetail() {
       _reason: completed ? "Marked as completed" : "Reopened job to In Progress",
     });
     if (error) return toast.error(errMsg(error));
+
     toast.success(
       completed
-        ? "Job marked as Completed! Moving to Payment Clearing."
+        ? "Job marked as Completed! Added to receivables awaiting payment clearing."
         : "Job reopened to In Progress",
     );
     qc.invalidateQueries({ queryKey: ["job", id] });
     qc.invalidateQueries({ queryKey: ["jobs-list"] });
     qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
-  };
-
-  const raiseInvoiceNow = async () => {
-    setRaising(true);
-    const linkedPaymentId = payQ.data?.[0]?.id || null;
-    const { data: invId, error } = await supabase.rpc("create_invoice_for_job", {
-      _job_id: id,
-      _payment_id: linkedPaymentId,
-      _invoice_date: new Date().toISOString().slice(0, 10),
-      _due_date: job.due_date ?? new Date().toISOString().slice(0, 10),
-      _tax_rate: 0,
-      _notes: "",
-      _extra_desc: "",
-      _extra_amount: 0,
-    });
-    setRaising(false);
-    if (error) return toast.error(errMsg(error));
-    toast.success("Invoice generated successfully!", {
-      action: invId
-        ? {
-            label: "Open Invoice",
-            onClick: () => navigate({ to: "/invoices/$id", params: { id: invId } }),
-          }
-        : undefined,
-    });
-    qc.invalidateQueries();
+    qc.invalidateQueries({ queryKey: ["receivables"] });
+    qc.invalidateQueries({ queryKey: ["invoices"] });
   };
 
   const saveEdit = async () => {
@@ -415,12 +267,19 @@ function JobDetail() {
     )
       return toast.error("Fee can't change after invoicing — adjust via the invoice");
     if (disc > fee || disc < 0) return toast.error("Discount must be between 0 and fee");
+
+    const existingCompany = job.notes?.match(/\[Company:\s*[^\]]+\]/)?.[0];
+    const existingBatch = job.notes?.match(/\[Batch:\s*[^\]]+\]/)?.[0];
+    const cleanUserNotes = edit.notes.trim();
+    const parts = [existingCompany, existingBatch, cleanUserNotes].filter(Boolean);
+    const finalNotes = parts.length > 0 ? parts.join("\n") : null;
+
     const { error } = await supabase
       .from("jobs")
       .update({
         due_date: edit.due_date || null,
         assigned_staff: edit.assigned_staff || null,
-        notes: edit.notes || null,
+        notes: finalNotes,
         fee,
         discount: disc,
         ...(edit.firm_id ? { firm_id: edit.firm_id } : {}),
@@ -428,23 +287,32 @@ function JobDetail() {
       .eq("id", id);
     if (error) return toast.error(errMsg(error));
     toast.success("Job saved");
+    setIsEditing(false);
     qc.invalidateQueries();
   };
 
-  const inv = (
-    job.invoice_items as Array<{
-      invoice_id: string;
-      invoices: {
-        id: string;
-        invoice_no: string;
-        status: string;
-        total: number;
-        amount_paid: number;
-        outstanding: number;
-        invoice_date: string;
-      } | null;
-    }> | null
-  )?.[0]?.invoices;
+  const invsMap = new Map<
+    string,
+    {
+      id: string;
+      invoice_no: string;
+      status: string;
+      total: number;
+      amount_paid: number;
+      outstanding: number;
+      invoice_date: string;
+    }
+  >();
+  if (Array.isArray(job.invoice_items)) {
+    for (const item of job.invoice_items as any[]) {
+      if (item?.invoices?.id) {
+        invsMap.set(item.invoices.id, item.invoices);
+      }
+    }
+  }
+  const connectedInvoices = Array.from(invsMap.values());
+  const hasInvoices = connectedInvoices.length > 0;
+  const inv = connectedInvoices[0] ?? null;
 
   return (
     <div>
@@ -465,26 +333,41 @@ function JobDetail() {
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-mono text-xs text-muted-foreground">{job.job_code}</span>
                 <StatusBadge status={jobDisplayStatus(job)} />
-                {inv ? (
-                  <Link
-                    to="/invoices/$id"
-                    params={{ id: inv.id }}
-                    className="group inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium bg-muted/70 hover:bg-muted border border-border/60 transition-colors"
-                    title="Click to view linked invoice"
-                  >
-                    <StatusBadge
-                      status={job.financial_status === "closed" ? "paid" : inv.status || "invoiced"}
-                    />
-                    <span className="font-mono text-[11px] text-primary underline underline-offset-2">
-                      {inv.invoice_no}
-                    </span>
-                    <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
-                  </Link>
+                {hasInvoices ? (
+                  connectedInvoices.map((i) => (
+                    <Link
+                      key={i.id}
+                      to="/invoices/$id"
+                      params={{ id: i.id }}
+                      className="group inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium bg-muted/70 hover:bg-muted border border-border/60 transition-colors whitespace-nowrap"
+                      title={`Click to view linked invoice ${i.invoice_no}`}
+                    >
+                      <StatusBadge
+                        status={job.financial_status === "closed" ? "paid" : i.status || "invoiced"}
+                      />
+                      <span className="font-mono text-[11px] text-primary underline underline-offset-2 whitespace-nowrap">
+                        {i.invoice_no}
+                      </span>
+                      <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+                    </Link>
+                  ))
                 ) : (
                   <StatusBadge status={job.financial_status} />
                 )}
-                {/* Prominent Mark as Done / Reopen Button + Safe Dropdown for Delete */}
+                {/* Prominent Mark as Done / Reopen Button + Edit Job + Safe Dropdown for Delete */}
                 <div className="ml-auto flex items-center gap-2">
+                  {canEdit("jobs") && (
+                    <Button
+                      size="sm"
+                      variant={isEditing ? "secondary" : "outline"}
+                      className="h-8 text-xs font-medium gap-1.5"
+                      onClick={() => setIsEditing((v) => !v)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      {isEditing ? "Close Editor" : "Edit Job"}
+                    </Button>
+                  )}
+
                   {canEdit("jobs") &&
                     (job.status !== "completed" ? (
                       <Button
@@ -558,98 +441,66 @@ function JobDetail() {
                 {job.clients?.name}
               </Link>
 
-              {inv && (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Linked Invoice
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-semibold text-foreground">
-                        {inv.invoice_no}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        · Date: {fmtDate(inv.invoice_date)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        · Total:{" "}
-                        <span className="font-medium text-foreground">{inr(inv.total)}</span>
-                      </span>
-                    </div>
+              {hasInvoices && (
+                <div className="mt-4 space-y-2">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    {connectedInvoices.length > 1 ? `Linked Invoices (${connectedInvoices.length})` : "Linked Invoice"}
                   </div>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link to="/invoices/$id" params={{ id: inv.id }}>
-                      Open Invoice
-                      <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
+                  {connectedInvoices.map((i) => (
+                    <div
+                      key={i.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/30 p-3"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-semibold text-foreground">
+                            {i.invoice_no}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            · Date: {fmtDate(i.invoice_date)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            · Total:{" "}
+                            <span className="font-medium text-foreground">{inr(i.total)}</span>
+                          </span>
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to="/invoices/$id" params={{ id: i.id }}>
+                          Open Invoice
+                          <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               )}
 
-              {!inv && wf.data && (
+              {!hasInvoices && wf.data && (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
                   <div className="space-y-0.5">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      {wf.data.invoice_available
-                        ? "Payment is squared off. This job is ready to invoice."
-                        : (wf.data.blocked_reason ?? "This job is not ready to invoice yet.")}
+                    <div className="text-xs font-semibold text-foreground">
+                      Awaiting payment clearing to generate invoice
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Invoices are strictly generated upon recording or clearing a payment against this task.
                     </div>
                   </div>
-                  {wf.data.invoice_available && isFinance ? (
-                    <Button size="sm" onClick={raiseInvoiceNow} disabled={raising}>
-                      <Receipt className="mr-1.5 h-4 w-4" />
-                      {raising ? "Raising..." : "Create Invoice"}
-                    </Button>
-                  ) : (
+                  <div className="flex items-center gap-2">
                     <Button
                       size="sm"
-                      variant="outline"
                       onClick={() =>
                         navigate({
                           to: "/clearing",
                           search: { client: job.client_id, job: id },
                         })
                       }
+                      className="gap-1.5 shadow-xs"
                     >
-                      Go to payment clearing
+                      <Receipt className="h-4 w-4" />
+                      Record / Clear Payment
                     </Button>
-                  )}
-                </div>
-              )}
-
-              {wf.data && (
-                <div className="mt-4 rounded-lg border border-border/60 p-3">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Workflow
                   </div>
-                  <ol className="grid gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
-                    {STAGES.map((s, i) => {
-                      const done = wf.data!.stages[s.key];
-                      const stamp = s.stamp?.(wf.data!);
-                      return (
-                        <li
-                          key={s.key}
-                          className={`rounded-md border px-2 py-1.5 text-[11px] ${
-                            done
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
-                              : "bg-muted/40 text-muted-foreground"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1 font-medium">
-                            <span
-                              className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] ${
-                                done ? "bg-emerald-600 text-white" : "bg-muted-foreground/30"
-                              }`}
-                            >
-                              {done ? "✓" : i + 1}
-                            </span>
-                            {s.label}
-                          </div>
-                          {stamp && <div className="mt-0.5 opacity-70">{fmtDate(stamp)}</div>}
-                        </li>
-                      );
-                    })}
-                  </ol>
                 </div>
               )}
 
@@ -738,10 +589,16 @@ function JobDetail() {
                       </>
                     );
                   })()}
+                {stripSystemNotes(job.notes) && (
+                  <div className="sm:col-span-4 mt-1 rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground border border-border/40">
+                    <span className="font-semibold text-foreground mr-1.5">Notes:</span>
+                    {stripSystemNotes(job.notes)}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
-          {canEdit("jobs") && (
+          {canEdit("jobs") && isEditing && (
             <Card className="shadow-none">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Edit Job</CardTitle>
@@ -815,138 +672,6 @@ function JobDetail() {
         <div className="space-y-4">
           <Card className="shadow-none">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 font-semibold text-sm">
-                  <ListChecks className="h-4 w-4 text-primary" />
-                  <span>Job Checklist</span>
-                </div>
-                {items.length > 0 && (
-                  <span className="text-xs font-mono font-medium text-muted-foreground">
-                    {items.filter((i) => i.done).length}/{items.length}
-                  </span>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Progress bar */}
-              {items.length > 0 && (
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary transition-all duration-300"
-                    style={{
-                      width: `${Math.round((items.filter((i) => i.done).length / items.length) * 100)}%`,
-                    }}
-                  />
-                </div>
-              )}
-
-              {items.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-4 text-center space-y-2">
-                  <p className="text-xs text-muted-foreground">No checklist items yet.</p>
-                  {canEdit("jobs") && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={loadStandardChecklist}
-                      className="text-xs h-8"
-                    >
-                      <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />
-                      Load Compliance Steps
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {items.map((it, i) => (
-                    <li
-                      key={`${it.label}-${i}`}
-                      className="group flex items-center justify-between gap-2 rounded-md p-1.5 hover:bg-muted/40 transition-colors"
-                    >
-                      <label className="flex flex-1 cursor-pointer items-center gap-2.5 text-xs select-none">
-                        <input
-                          type="checkbox"
-                          checked={it.done}
-                          onChange={() => toggleItem(i)}
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                        />
-                        <div className="flex flex-1 items-center justify-between gap-2 pr-1">
-                          <span
-                            className={
-                              it.done
-                                ? "line-through text-muted-foreground opacity-60 transition-all"
-                                : "text-foreground font-medium transition-all"
-                            }
-                          >
-                            {it.label}
-                          </span>
-                          {it.fee != null && it.fee > 0 && canSeeAmounts("jobs") && (
-                            <span className="font-mono text-[11px] font-semibold text-muted-foreground">
-                              {inr(it.fee)}
-                            </span>
-                          )}
-                        </div>
-                      </label>
-                      {canEdit("jobs") && (
-                        <button
-                          type="button"
-                          onClick={() => deleteItem(i)}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive p-1 transition-opacity"
-                          title="Delete item"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {/* Add checklist item */}
-              {canEdit("jobs") && (
-                <div className="flex items-center gap-1.5 pt-1">
-                  <Input
-                    placeholder="Add checklist step…"
-                    value={newItemText}
-                    onChange={(e) => setNewItemText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addItem();
-                      }
-                    }}
-                    className="h-8 text-xs bg-background"
-                  />
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={addItem}
-                    disabled={!newItemText.trim()}
-                    className="h-8 px-2.5 shrink-0"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-
-              {/* One-click Complete Job button when checklist is done */}
-              {items.length > 0 &&
-                items.every((it) => it.done) &&
-                job.status !== "completed" &&
-                canEdit("jobs") && (
-                  <Button
-                    size="sm"
-                    onClick={markJobCompletedFromChecklist}
-                    className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-8"
-                  >
-                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                    Complete Job & Clear
-                  </Button>
-                )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-none">
-            <CardHeader className="pb-2">
               <CardTitle className="text-sm">Related Records</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -988,18 +713,23 @@ function JobDetail() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Invoice</span>
-                {inv ? (
-                  <Link
-                    to="/invoices/$id"
-                    params={{ id: inv.id }}
-                    className="font-mono text-primary underline underline-offset-2"
-                  >
-                    {inv.invoice_no}
-                  </Link>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-muted-foreground">Invoice{connectedInvoices.length > 1 ? "s" : ""}</span>
+                {hasInvoices ? (
+                  <div className="flex flex-col items-end gap-1">
+                    {connectedInvoices.map((i) => (
+                      <Link
+                        key={i.id}
+                        to="/invoices/$id"
+                        params={{ id: i.id }}
+                        className="font-mono text-primary underline underline-offset-2 text-xs"
+                      >
+                        {i.invoice_no}
+                      </Link>
+                    ))}
+                  </div>
                 ) : (
-                  <span className="text-muted-foreground">Not Yet Created</span>
+                  <span className="text-muted-foreground text-xs">Not Yet Created</span>
                 )}
               </div>
               {wf.data && (
@@ -1037,7 +767,7 @@ function JobDetail() {
             </CardContent>
           </Card>
 
-          {canEdit("jobs") && (
+          {canUpdate("jobs") && (
             <Card className="shadow-none">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Update Status</CardTitle>

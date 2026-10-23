@@ -28,6 +28,7 @@ import {
   fmtDate,
   fmtDateTime,
   inr,
+  inrShort,
   invoiceDisplayStatus,
   jobDisplayStatus,
   label,
@@ -361,7 +362,7 @@ function Dashboard() {
                 <XAxis dataKey="formattedDate" fontSize={11} tickLine={false} />
                 <YAxis
                   fontSize={11}
-                  tickFormatter={(v) => `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                  tickFormatter={(v) => inrShort(v)}
                   tickLine={false}
                 />
                 <Tooltip
@@ -436,7 +437,7 @@ function Dashboard() {
               <BarChart data={modeChart}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" fontSize={11} />
-                <YAxis fontSize={11} tickFormatter={(v) => `${v / 1000}k`} />
+                <YAxis fontSize={11} tickFormatter={(v) => inrShort(v)} />
                 <Tooltip formatter={(v: number) => inr(v)} />
                 <Bar dataKey="value" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -453,7 +454,7 @@ function Dashboard() {
               <BarChart data={ageChart}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" fontSize={10} />
-                <YAxis fontSize={11} tickFormatter={(v) => `${v / 1000}k`} />
+                <YAxis fontSize={11} tickFormatter={(v) => inrShort(v)} />
                 <Tooltip formatter={(v: number) => inr(v)} />
                 <Bar dataKey="value" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
               </BarChart>

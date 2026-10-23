@@ -67,6 +67,7 @@ export function usePermissions() {
     canView: (module: Module) => can(module, "view"),
     canCreate: (module: Module) => can(module, "create"),
     canEdit: (module: Module) => can(module, "edit"),
+    canUpdate: (module: Module) => can(module, "update") || can(module, "edit"),
     canDelete: (module: Module) => can(module, "delete") && !DELETE_LOCKED[module],
     canSeeAmounts: (module: Module) => can(module, "amounts"),
     /** View is the gate for everything else: no point editing what you cannot open. */
@@ -92,17 +93,30 @@ export function usePermissionMatrix() {
 export function useSetPermission() {
   const qc = useQueryClient();
   return async (role: Role, module: Module, next: Grants): Promise<void> => {
-    const { error } = await supabase.rpc("set_role_permission", {
+    let res = await supabase.rpc("set_role_permission", {
       _role: role,
       _module: module,
       _view: next.view,
       _create: next.create,
       _edit: next.edit,
+      _update: next.update,
       _delete: next.delete,
       _amounts: next.amounts,
     });
-    if (error) {
-      toast.error(errMsg(error));
+    // Fallback if database still has 7-parameter version without _update
+    if (res.error && res.error.message?.includes("function")) {
+      res = await (supabase.rpc as any)("set_role_permission", {
+        _role: role,
+        _module: module,
+        _view: next.view,
+        _create: next.create,
+        _edit: next.edit,
+        _delete: next.delete,
+        _amounts: next.amounts,
+      });
+    }
+    if (res.error) {
+      toast.error(errMsg(res.error));
       return;
     }
     qc.invalidateQueries({ queryKey: ["permission-matrix"] });

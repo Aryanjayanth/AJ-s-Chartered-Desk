@@ -149,7 +149,7 @@ function SetPassword() {
           <img
             src="/logo.png"
             alt="AJ's Chartered Desk"
-            className="mx-auto mb-2 h-12 w-auto object-contain"
+            className="mx-auto mb-2 h-12 w-auto object-contain mix-blend-screen"
           />
           <h2 className="text-xl font-bold tracking-tight text-white">AJ's Chartered Desk</h2>
           <p className="text-xs text-slate-400">Account Setup & Security</p>

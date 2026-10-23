@@ -838,6 +838,7 @@ export type Database = {
         Row: {
           assigned_staff: string | null;
           auto_invoice: boolean;
+          batch_id: string | null;
           checklist: Json;
           client_id: string;
           client_service_id: string | null;
@@ -862,6 +863,7 @@ export type Database = {
         Insert: {
           assigned_staff?: string | null;
           auto_invoice?: boolean;
+          batch_id?: string | null;
           checklist?: Json;
           client_id: string;
           client_service_id?: string | null;
@@ -886,6 +888,7 @@ export type Database = {
         Update: {
           assigned_staff?: string | null;
           auto_invoice?: boolean;
+          batch_id?: string | null;
           checklist?: Json;
           client_id?: string;
           client_service_id?: string | null;

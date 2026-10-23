@@ -258,19 +258,21 @@ function ReportsPage() {
             Status: a.reversed ? "Reversed" : "Active",
           }));
       case "Outstanding Report":
-      case "Ageing Report":
-        return d.i
+      case "Ageing Report": {
+        const invRows = d.i
           .filter(
             (i) =>
-              ["unpaid", "partially_paid"].includes(i.status) &&
+              i.status !== "cancelled" &&
               Number(i.outstanding) > 0 &&
               okC(i.client_id) &&
               inRange(i.invoice_date),
           )
           .map((i) => ({
             id: i.id,
+            Type: "Invoice",
+            Reference: i.invoice_no,
             Client: i.clients?.name ?? "",
-            Invoice: i.invoice_no,
+            Date: fmtDate(i.invoice_date),
             Due: fmtDate(i.due_date),
             Total: inr(i.total),
             Paid: inr(i.amount_paid),
@@ -278,6 +280,33 @@ function ReportsPage() {
             "Days Overdue": Math.max(0, daysBetween(i.due_date)),
             Bucket: ageingBucket(i.due_date),
           }));
+
+        const jobRows = d.j
+          .filter(
+            (j) =>
+              j.status === "completed" &&
+              j.financial_status === "open" &&
+              Number(j.net_amount || 0) > 0 &&
+              okC(j.client_id) &&
+              okS(j.service_id) &&
+              inRange(j.due_date),
+          )
+          .map((j) => ({
+            id: j.id,
+            Type: "Completed Job",
+            Reference: j.job_code,
+            Client: j.clients?.name ?? "",
+            Date: fmtDate(j.created_at),
+            Due: fmtDate(j.due_date),
+            Total: inr(j.net_amount),
+            Paid: inr(0),
+            Outstanding: inr(j.net_amount),
+            "Days Overdue": Math.max(0, daysBetween(j.due_date)),
+            Bucket: ageingBucket(j.due_date),
+          }));
+
+        return [...invRows, ...jobRows];
+      }
       case "Unallocated Payment Report":
         return d.p
           .filter(

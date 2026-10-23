@@ -6,20 +6,18 @@ import {
   Check,
   Clock,
   Download,
-  ListChecks,
+  Layers,
   CheckCircle2,
   AlertCircle,
   PauseCircle,
   XCircle,
-  Layers,
   ArrowRight,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -40,22 +38,22 @@ import {
   NativeSelect,
   PageHeader,
   ChecklistFilter,
-  ConfirmDeleteDialog,
   DateRangePicker,
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useProfiles } from "@/hooks/use-roles";
 import { deleteJobs } from "@/lib/firms.functions";
-import { downloadCsv, errMsg, fmtDate, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
+import { downloadCsv, errMsg, fmtDate, inr, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
     meta: [
-      { title: "Tasks & Subtasks — AJ's Chartered Desk" },
+      { title: "Tasks — AJ's Chartered Desk" },
       {
         name: "description",
-        content: "Actionable checklist subtasks and compliance workflow tracking.",
+        content: "Parent job summary, compliance workflow tracking, and billing status.",
       },
     ],
   }),
@@ -81,45 +79,31 @@ interface FlatJobItem {
   financial_status: string;
   created_at: string | null;
   due_date: string | null;
+  period_start?: string | null;
   checklist: ChecklistItem[];
   assigned_staff: string | null;
   assigned_staff_name: string | null;
-}
-
-interface SubtaskRow {
-  id: string;
-  jobId: string;
-  jobCode: string;
-  jobTitle: string;
-  clientName: string;
-  serviceName: string;
-  assignedStaff: string;
-  dueDate: string | null;
-  itemIndex: number;
-  label: string;
-  done: boolean;
-  jobStatus: string;
-  totalItems: number;
-  itemNumber: number;
+  fee: number | null;
+  net_amount: number | null;
+  auto_invoice?: boolean | null;
+  invoices: Array<{ id: string; invoice_no: string; status: string }>;
+  invoice_id: string | null;
+  invoice_no: string | null;
+  invoice_status: string | null;
 }
 
 function TasksPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { canEdit, canDelete } = usePermissions();
+  const { canEdit, canDelete, canSeeAmounts } = usePermissions();
 
-  const [activeTab, setActiveTab] = useState<"subtasks" | "jobs">("subtasks");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [checklistFilter, setChecklistFilter] = useState<"all" | "pending" | "completed">(
-    "pending",
-  );
   const [clientFilter, setClientFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const [subtasksToDelete, setSubtasksToDelete] = useState<SubtaskRow[] | null>(null);
   const [jobsToDelete, setJobsToDelete] = useState<FlatJobItem[] | null>(null);
   const [forceDeleteJobs, setForceDeleteJobs] = useState(false);
   const [isDeletingJobs, setIsDeletingJobs] = useState(false);
@@ -130,70 +114,82 @@ function TasksPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id,job_code,client_id,service_id,title,status,financial_status,due_date,created_at,checklist,assigned_staff,clients(id,name,client_code),services(id,name),profiles!jobs_assigned_staff_fkey(full_name)",
+          "id,job_code,client_id,service_id,title,status,financial_status,due_date,created_at,period_start,checklist,assigned_staff,fee,net_amount,auto_invoice,clients(id,name,client_code),services(id,name),profiles!jobs_assigned_staff_fkey(full_name),invoice_items(invoice_id,invoices(id,invoice_no,status))",
         )
-        .order("created_at", { ascending: false });
+        .order("job_code", { ascending: true });
 
       if (error) {
         console.error("Failed to fetch jobs for tasks:", error);
         throw error;
       }
 
-      return (data ?? []).map((j: any) => ({
-        id: j.id,
-        job_code: j.job_code ?? "",
-        title: j.title ?? "",
-        client_id: j.client_id ?? "",
-        client_name: j.clients?.name ?? null,
-        client_code: j.clients?.client_code ?? null,
-        service_id: j.service_id ?? "",
-        service_name: j.services?.name ?? null,
-        status: j.status ?? "pending",
-        financial_status: j.financial_status ?? "open",
-        created_at: j.created_at ?? null,
-        due_date: j.due_date ?? null,
-        checklist: Array.isArray(j.checklist) ? j.checklist : [],
-        assigned_staff: j.assigned_staff ?? null,
-        assigned_staff_name: j.profiles?.full_name ?? null,
-      }));
+      return (data ?? []).map((j: any) => {
+        const invsMap = new Map<string, { id: string; invoice_no: string; status: string }>();
+        if (Array.isArray(j.invoice_items)) {
+          for (const item of j.invoice_items) {
+            if (item?.invoices?.id) {
+              invsMap.set(item.invoices.id, item.invoices);
+            }
+          }
+        }
+        const taskInvoices = Array.from(invsMap.values());
+        const firstInv = taskInvoices[0] ?? null;
+        return {
+          id: j.id,
+          job_code: j.job_code ?? "",
+          title: j.title ?? "",
+          client_id: j.client_id ?? "",
+          client_name: j.clients?.name ?? null,
+          client_code: j.clients?.client_code ?? null,
+          service_id: j.service_id ?? "",
+          service_name: j.services?.name ?? null,
+          status: j.status ?? "pending",
+          financial_status: j.financial_status ?? "open",
+          created_at: j.created_at ?? null,
+          due_date: j.due_date ?? null,
+          period_start: j.period_start ?? null,
+          checklist: Array.isArray(j.checklist) ? j.checklist : [],
+          assigned_staff: j.assigned_staff ?? null,
+          assigned_staff_name: j.profiles?.full_name ?? null,
+          fee: j.fee ?? null,
+          net_amount: j.net_amount ?? null,
+          auto_invoice: j.auto_invoice ?? false,
+          invoices: taskInvoices,
+          invoice_id: firstInv?.id ?? null,
+          invoice_no: firstInv?.invoice_no ?? null,
+          invoice_status: firstInv?.status ?? null,
+        };
+      });
     },
   });
 
-  const jobsList = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
+  const { data: profiles } = useProfiles();
 
-  // Flattened Subtasks list extracted from all jobs
-  const subtasksList = useMemo<SubtaskRow[]>(() => {
-    const list: SubtaskRow[] = [];
-    for (const job of jobsList) {
-      const items =
-        Array.isArray(job.checklist) && job.checklist.length > 0
-          ? job.checklist
-          : [
-              // If job doesn't have an explicit checklist yet, represent default primary task
-              { label: job.title || "Compliance work execution", done: job.status === "completed" },
-            ];
+  const doneByQuery = useQuery({
+    queryKey: ["job-status-history", "completed"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("job_status_history")
+        .select("job_id, changed_by, changed_at, new_status")
+        .eq("new_status", "completed")
+        .order("changed_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
-      items.forEach((item, idx) => {
-        list.push({
-          id: `${job.id}-${idx}`,
-          jobId: job.id,
-          jobCode: job.job_code,
-          jobTitle: job.title,
-          clientName: job.client_name ?? "—",
-          serviceName: job.service_name ?? "—",
-          assignedStaff: job.assigned_staff_name ?? "Unassigned",
-          dueDate: job.due_date,
-          itemIndex: idx,
-          label: item.label || `Task Step ${idx + 1}`,
-          done: !!item.done,
-          jobStatus: job.status,
-          totalItems: items.length,
-          itemNumber: idx + 1,
-        });
-      });
+  const doneByMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const h of doneByQuery.data ?? []) {
+      if (!map.has(h.job_id)) {
+        const name = profiles?.find((p: any) => p.id === h.changed_by)?.full_name ?? "Unknown";
+        map.set(h.job_id, name);
+      }
     }
-    return list;
-  }, [jobsList]);
+    return map;
+  }, [doneByQuery.data, profiles]);
+
+  const jobsList = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
 
   const uniqueServices = useMemo(() => {
     const map = new Map<string, string>();
@@ -205,51 +201,42 @@ function TasksPage() {
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [jobsList]);
 
-  // Filtered Subtasks
-  const filteredSubtasks = useMemo(() => {
-    return subtasksList.filter((st) => {
-      if (checklistFilter === "pending" && st.done) return false;
-      if (checklistFilter === "completed" && !st.done) return false;
+  // Display name helper: For recurring tasks, append the month name at end (e.g. "Service Name – Oct 2026")
+  const displayServiceName = (j: FlatJobItem) => {
+    const baseName = j.service_name || j.title || "—";
+    const monthRegex = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b/i;
+    if (monthRegex.test(baseName)) {
+      return baseName;
+    }
+    if (j.title && monthRegex.test(j.title)) {
+      return j.title;
+    }
 
-      if (selectedStatuses.length > 0) {
-        const job = jobsList.find((j) => j.id === st.jobId);
-        const dStatus = job ? jobDisplayStatus(job) : st.jobStatus;
-        if (!selectedStatuses.includes(dStatus)) return false;
+    const isExplicitNonRecurring =
+      baseName.toLowerCase().includes("non-recurring") ||
+      baseName.toLowerCase().includes("non - recurring") ||
+      (j.title &&
+        (j.title.toLowerCase().includes("non-recurring") ||
+          j.title.toLowerCase().includes("non - recurring")));
+
+    const isRecurring =
+      !isExplicitNonRecurring &&
+      (baseName.toLowerCase().includes("recurring") ||
+        (j.title && j.title.toLowerCase().includes("recurring")) ||
+        Boolean(j.period_start && j.period_end && j.period_start !== j.period_end));
+
+    if (isRecurring) {
+      const dt = j.period_start || j.due_date || j.created_at;
+      if (dt) {
+        const d = new Date(dt);
+        if (!isNaN(d.getTime())) {
+          const monthYear = d.toLocaleString("en-IN", { month: "short", year: "numeric" });
+          return `${baseName} – ${monthYear}`;
+        }
       }
-
-      if (clientFilter) {
-        const job = jobsList.find((j) => j.id === st.jobId);
-        if (job?.client_id !== clientFilter) return false;
-      }
-
-      if (serviceFilter) {
-        const job = jobsList.find((j) => j.id === st.jobId);
-        if (job?.service_id !== serviceFilter) return false;
-      }
-
-      if (dateFrom && st.dueDate && st.dueDate < dateFrom) return false;
-      if (dateTo && st.dueDate && st.dueDate > dateTo) return false;
-
-      if (searchFilter) {
-        const s = searchFilter.toLowerCase();
-        const hay =
-          `${st.label} ${st.jobCode} ${st.jobTitle} ${st.clientName} ${st.serviceName} ${st.assignedStaff}`.toLowerCase();
-        if (!hay.includes(s)) return false;
-      }
-
-      return true;
-    });
-  }, [
-    subtasksList,
-    checklistFilter,
-    selectedStatuses,
-    clientFilter,
-    serviceFilter,
-    dateFrom,
-    dateTo,
-    searchFilter,
-    jobsList,
-  ]);
+    }
+    return baseName;
+  };
 
   // Filtered Jobs
   const filteredJobs = useMemo(() => {
@@ -292,117 +279,17 @@ function TasksPage() {
           _status: newStatus,
           _reason: `Status changed to ${newStatus} via Tasks bulk action`,
         });
-        if (!error) count++;
+        if (!error) {
+          count++;
+        }
       }
       toast.dismiss(toastId);
       toast.success(`Successfully updated ${count} job(s) to ${label(newStatus)}`);
       clearSelection();
       qc.invalidateQueries({ queryKey: ["jobs"] });
-    } catch (err) {
-      toast.dismiss(toastId);
-      toast.error(errMsg(err));
-    }
-  };
-
-  // Bulk subtask completion toggle
-  const handleBulkSubtasksDone = async (
-    subtasks: SubtaskRow[],
-    done: boolean,
-    clearSelection: () => void,
-  ) => {
-    if (!canEdit("jobs")) {
-      toast.error("Not authorised to edit tasks");
-      return;
-    }
-    const toastId = toast.loading(
-      `Marking ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}...`,
-    );
-    try {
-      const map = new Map<string, Set<number>>();
-      for (const st of subtasks) {
-        if (!map.has(st.jobId)) map.set(st.jobId, new Set());
-        map.get(st.jobId)!.add(st.itemIndex);
-      }
-
-      for (const [jobId, indices] of map.entries()) {
-        const job = jobsList.find((j) => j.id === jobId);
-        if (!job) continue;
-        const currentChecklist =
-          Array.isArray(job.checklist) && job.checklist.length > 0
-            ? [...job.checklist]
-            : [{ label: job.title || "Compliance work execution", done: false }];
-
-        const updatedChecklist = currentChecklist.map((it, idx) =>
-          indices.has(idx) ? { ...it, done } : it,
-        );
-        const allDone = updatedChecklist.length > 0 && updatedChecklist.every((it) => it.done);
-
-        const updates: Record<string, any> = { checklist: updatedChecklist };
-        if (allDone) {
-          updates.status = "completed";
-          updates.completed_at = new Date().toISOString();
-        } else if (!done && job.status === "completed") {
-          updates.status = "in_progress";
-          updates.completed_at = null;
-        }
-
-        await supabase
-          .from("jobs")
-          .update(updates as never)
-          .eq("id", jobId);
-        if (allDone && job.status !== "completed") {
-          await supabase.rpc("update_job_status", {
-            _job_id: jobId,
-            _status: "completed",
-            _reason: "All checklist subtasks completed via bulk action",
-          });
-        }
-      }
-
-      toast.dismiss(toastId);
-      toast.success(`Marked ${subtasks.length} subtask(s) as ${done ? "completed" : "pending"}`);
-      clearSelection();
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["jobs"] }),
-        qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
-        qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] }),
-        qc.invalidateQueries({ queryKey: ["clearing-v2-jobs"] }),
-      ]);
-    } catch (err) {
-      toast.dismiss(toastId);
-      toast.error(errMsg(err));
-    }
-  };
-
-  // Bulk deletion of subtasks from job checklists
-  const handleBulkDeleteSubtasks = async () => {
-    if (!subtasksToDelete || subtasksToDelete.length === 0) return;
-    const toastId = toast.loading(`Deleting ${subtasksToDelete.length} checklist subtask(s)...`);
-    try {
-      const map = new Map<string, Set<number>>();
-      for (const st of subtasksToDelete) {
-        if (!map.has(st.jobId)) map.set(st.jobId, new Set());
-        map.get(st.jobId)!.add(st.itemIndex);
-      }
-
-      for (const [jobId, indices] of map.entries()) {
-        const job = jobsList.find((j) => j.id === jobId);
-        if (!job) continue;
-        const currentChecklist = Array.isArray(job.checklist) ? job.checklist : [];
-        const newChecklist = currentChecklist.filter((_, idx) => !indices.has(idx));
-        await supabase
-          .from("jobs")
-          .update({ checklist: newChecklist as never })
-          .eq("id", jobId);
-      }
-
-      toast.dismiss(toastId);
-      toast.success(`Deleted ${subtasksToDelete.length} checklist subtask(s)`);
-      setSubtasksToDelete(null);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["jobs"] }),
-        qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] }),
-      ]);
+      qc.invalidateQueries({ queryKey: ["jobs", "tasks-view"] });
+      qc.invalidateQueries({ queryKey: ["receivables"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
     } catch (err) {
       toast.dismiss(toastId);
       toast.error(errMsg(err));
@@ -419,10 +306,12 @@ function TasksPage() {
         ? `Force deleting ${count} job(s) and detaching linked records...`
         : `Deleting ${count} job(s)...`,
     );
+
     try {
       const ids = jobsToDelete.map((j) => j.id);
-      const res = await deleteJobs({ data: { jobIds: ids, force } });
+      const res = await deleteJobs(ids, force);
       toast.dismiss(toastId);
+
       if (res.deleted > 0) {
         toast.success(`Successfully deleted ${res.deleted} job(s)`);
       }
@@ -447,9 +336,9 @@ function TasksPage() {
   };
 
   // Metrics
-  const totalSubtasks = subtasksList.length;
-  const pendingSubtasks = subtasksList.filter((s) => !s.done).length;
-  const completedSubtasks = subtasksList.filter((s) => s.done).length;
+  const totalJobs = jobsList.length;
+  const pendingJobs = jobsList.filter((j) => jobDisplayStatus(j) === "pending" || j.status === "pending").length;
+  const completedJobs = jobsList.filter((j) => j.status === "completed").length;
   const overdueJobsCount = jobsList.filter((j) => jobDisplayStatus(j) === "overdue").length;
 
   const statusOptions = [...JOB_STATUSES, "overdue"].map((s) => ({
@@ -457,13 +346,40 @@ function TasksPage() {
     label: label(s),
   }));
 
+  const handleExportTasksCsv = () => {
+    const dataToExport = filteredJobs.map((j) => ({
+      "Job Code": j.job_code,
+      Service: displayServiceName(j),
+      Client: j.client_name ?? "",
+      Status: label(jobDisplayStatus(j)),
+      Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "",
+      "Billing Status": j.invoice_no ?? j.financial_status,
+      "Done By": j.status === "completed" ? (doneByMap.get(j.id) ?? "-") : "-",
+      "Created Date": fmtDate(j.created_at),
+    }));
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`tasks_${stamp}.csv`, dataToExport);
+  };
+
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Tasks & Subtasks"
-        subtitle="Individual checklist tasks and compliance activity tracking across all active jobs."
+        title="Tasks"
+        subtitle="Manage compliance jobs, work assignments, and deliverables."
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleExportTasksCsv}
+              disabled={!filteredJobs.length}
+              className="h-9 text-xs gap-1.5 font-medium"
+              title="Export filtered tasks to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
             <Button variant="outline" asChild>
               <Link to="/jobs">
                 View All Jobs
@@ -474,15 +390,15 @@ function TasksPage() {
         }
       />
 
-      {/* KPI Stats Cards */}
+      {/* KPI Stats Cards matching the screenshot */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-none">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <ListChecks className="h-5 w-5" />
+            <Layers className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Checklist Subtasks</div>
-            <div className="text-xl font-bold">{totalSubtasks}</div>
+            <div className="text-xs text-muted-foreground">Total Jobs</div>
+            <div className="text-xl font-bold">{totalJobs}</div>
           </div>
         </div>
 
@@ -491,8 +407,8 @@ function TasksPage() {
             <Clock className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Pending Subtasks</div>
-            <div className="text-xl font-bold text-amber-600">{pendingSubtasks}</div>
+            <div className="text-xs text-muted-foreground">Pending Jobs</div>
+            <div className="text-xl font-bold text-amber-600">{pendingJobs}</div>
           </div>
         </div>
 
@@ -501,8 +417,8 @@ function TasksPage() {
             <CheckCircle2 className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Completed Subtasks</div>
-            <div className="text-xl font-bold text-emerald-600">{completedSubtasks}</div>
+            <div className="text-xs text-muted-foreground">Completed Jobs</div>
+            <div className="text-xl font-bold text-emerald-600">{completedJobs}</div>
           </div>
         </div>
 
@@ -511,549 +427,269 @@ function TasksPage() {
             <AlertCircle className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Overdue Compliance</div>
+            <div className="text-xs text-muted-foreground">Overdue Jobs</div>
             <div className="text-xl font-bold text-rose-600">{overdueJobsCount}</div>
           </div>
         </div>
       </div>
 
-      {/* View Switcher Tabs: Individual Subtasks vs Parent Jobs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant={activeTab === "subtasks" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActiveTab("subtasks")}
-            className="gap-1.5 h-8 text-xs font-medium"
-          >
-            <ListChecks className="h-3.5 w-3.5" />
-            Individual Subtasks Checklist ({filteredSubtasks.length})
-          </Button>
-          <Button
-            type="button"
-            variant={activeTab === "jobs" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActiveTab("jobs")}
-            className="gap-1.5 h-8 text-xs font-medium"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            Parent Jobs Summary ({filteredJobs.length})
-          </Button>
-        </div>
+      {/* Main Jobs Table */}
+      <DataTable
+        rows={filteredJobs}
+        loading={jobsQuery.isLoading}
+        selectable
+        defaultSortKey="job_code"
+        defaultSortDir={1}
+        bulkActions={(selected, clearSelection) => (
+          <div className="flex items-center gap-2">
+            {canEdit("jobs") && (
+              <>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+                  onClick={() => handleBulkStatus(selected, "completed", clearSelection)}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Mark Done ({selected.length})
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium">
+                      Update
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selected, "in_progress", clearSelection)}
+                      className="cursor-pointer gap-2"
+                    >
+                      <Clock className="h-3.5 w-3.5 text-blue-600" />
+                      <span>In Progress</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selected, "on_hold", clearSelection)}
+                      className="cursor-pointer gap-2"
+                    >
+                      <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
+                      <span>On Hold</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleBulkStatus(selected, "cancelled", clearSelection)}
+                      className="cursor-pointer gap-2 text-destructive"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      <span>Cancelled</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
 
-        {activeTab === "subtasks" && (
-          <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-lg text-xs">
-            <span className="text-[11px] font-medium text-muted-foreground px-1.5">Checklist:</span>
+            {canDelete("jobs") && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
+                onClick={() => setJobsToDelete(selected)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Selected ({selected.length})
+              </Button>
+            )}
+
             <Button
               type="button"
-              variant={checklistFilter === "all" ? "secondary" : "ghost"}
+              variant="outline"
               size="sm"
-              onClick={() => setChecklistFilter("all")}
-              className="h-6 px-2 text-xs"
+              className="h-8 text-xs gap-1.5 font-medium bg-background cursor-pointer"
+              onClick={() => {
+                const dataToExport = selected.map((j) => ({
+                  "Job Code": j.job_code,
+                  Service: displayServiceName(j),
+                  Client: j.client_name ?? "",
+                  Status: label(jobDisplayStatus(j)),
+                  Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "",
+                  "Billing Status": j.invoice_no ?? j.financial_status,
+                  "Done By": j.status === "completed" ? (doneByMap.get(j.id) ?? "-") : "-",
+                  "Created Date": fmtDate(j.created_at),
+                }));
+                const stamp = new Date().toISOString().slice(0, 10);
+                downloadCsv(`tasks_selected_${stamp}.csv`, dataToExport);
+              }}
             >
-              All
-            </Button>
-            <Button
-              type="button"
-              variant={checklistFilter === "pending" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setChecklistFilter("pending")}
-              className="h-6 px-2 text-xs text-amber-600"
-            >
-              Pending Only
-            </Button>
-            <Button
-              type="button"
-              variant={checklistFilter === "completed" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setChecklistFilter("completed")}
-              className="h-6 px-2 text-xs text-emerald-600"
-            >
-              Completed
+              <Download className="h-3.5 w-3.5" />
+              Export Selected ({selected.length})
             </Button>
           </div>
         )}
-      </div>
+        onRowClick={(j) => navigate({ to: "/jobs/$id", params: { id: j.id } })}
+        empty="No jobs match these filters."
+        search={(j) => `${j.job_code} ${j.title} ${j.service_name ?? ""} ${j.client_name ?? ""}`}
+        toolbar={
+          <>
+            <ChecklistFilter
+              label="Status"
+              options={statusOptions}
+              selected={selectedStatuses}
+              onChange={setSelectedStatuses}
+              className="w-32"
+            />
 
-      {/* Tab 1: Actionable Individual Subtasks View */}
-      {activeTab === "subtasks" ? (
-        <DataTable
-          rows={filteredSubtasks}
-          loading={jobsQuery.isLoading}
-          selectable
-          bulkActions={(selectedSubtasks, clearSelection) => (
-            <div className="flex flex-wrap items-center gap-2">
-              {canEdit("jobs") && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                    onClick={() => handleBulkSubtasksDone(selectedSubtasks, true, clearSelection)}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Mark Done ({selectedSubtasks.length})
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs font-medium gap-1.5 cursor-pointer"
-                    onClick={() => handleBulkSubtasksDone(selectedSubtasks, false, clearSelection)}
-                  >
-                    <Clock className="h-3.5 w-3.5 text-amber-600" />
-                    Mark Pending
-                  </Button>
-                </>
-              )}
+            <ClientSelect
+              value={clientFilter}
+              onChange={setClientFilter}
+              placeholder="All clients"
+              className="w-36 text-xs h-9"
+              allowClear
+            />
 
-              {canDelete("jobs") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
-                  onClick={() => setSubtasksToDelete(selectedSubtasks)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete Selected ({selectedSubtasks.length})
-                </Button>
-              )}
+            <NativeSelect
+              value={serviceFilter}
+              onChange={(e) => setServiceFilter(e.target.value)}
+              className="w-32 text-xs h-9"
+            >
+              <option value="">All services</option>
+              {uniqueServices.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </NativeSelect>
 
+            <DateRangePicker
+              from={dateFrom}
+              to={dateTo}
+              onFromChange={setDateFrom}
+              onToChange={setDateTo}
+              label="Date"
+            />
+
+            {(selectedStatuses.length > 0 || clientFilter || serviceFilter || dateFrom || dateTo) && (
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="h-8 text-xs gap-1.5 font-medium bg-background cursor-pointer"
                 onClick={() => {
-                  const dataToExport = selectedSubtasks.map((s) => ({
-                    "Subtask Item": s.label,
-                    Status: s.done ? "Completed" : "Pending",
-                    "Job Code": s.jobCode,
-                    "Job Title": s.jobTitle,
-                    Client: s.clientName,
-                    Service: s.serviceName,
-                    "Assigned Staff": s.assignedStaff,
-                    "Due Date": fmtDate(s.dueDate),
-                  }));
-                  const stamp = new Date().toISOString().slice(0, 10);
-                  downloadCsv(`subtasks_selected_${stamp}.csv`, dataToExport);
+                  setSelectedStatuses([]);
+                  setClientFilter("");
+                  setServiceFilter("");
+                  setDateFrom("");
+                  setDateTo("");
                 }}
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                title="Reset all filters"
               >
-                <Download className="h-3.5 w-3.5" />
-                Export Selected ({selectedSubtasks.length})
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
               </Button>
-            </div>
-          )}
-          empty="No checklist subtasks found for the selected filters."
-          search={(s) => `${s.label} ${s.jobCode} ${s.jobTitle} ${s.clientName} ${s.serviceName}`}
-          exportFilename="checklist_subtasks"
-          exportTransform={(s) => ({
-            "Subtask Item": s.label,
-            Done: s.done ? "Yes" : "No",
-            "Job Code": s.jobCode,
-            "Job Title": s.jobTitle,
-            Client: s.clientName,
-            Service: s.serviceName,
-            "Assigned Staff": s.assignedStaff,
-            "Due Date": fmtDate(s.dueDate),
-          })}
-          toolbar={
-            <>
-              {/* Multi-select Checklist Filter for Status */}
-              <ChecklistFilter
-                label="Job Status"
-                options={statusOptions}
-                selected={selectedStatuses}
-                onChange={setSelectedStatuses}
-                className="w-36"
-              />
-
-              <ClientSelect
-                value={clientFilter}
-                onChange={setClientFilter}
-                placeholder="All clients"
-                className="w-40 text-xs h-9"
-                allowClear
-              />
-
-              <NativeSelect
-                value={serviceFilter}
-                onChange={(e) => setServiceFilter(e.target.value)}
-                className="w-36 text-xs h-9"
-              >
-                <option value="">All services</option>
-                {uniqueServices.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </NativeSelect>
-
-              <DateRangePicker
-                from={dateFrom}
-                to={dateTo}
-                onFromChange={setDateFrom}
-                onToChange={setDateTo}
-                label="Due"
-              />
-            </>
-          }
-          columns={[
-            {
-              key: "status",
-              header: "Status",
-              className: "w-28",
-              sort: (st) => (st.done ? "Completed" : "Pending"),
-              render: (st) => (
-                <div className="flex items-center">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border select-none",
-                      st.done
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
-                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
-                    )}
-                  >
-                    {st.done ? (
-                      <>
-                        <Check className="h-3 w-3 text-emerald-600" />
-                        <span>Done</span>
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="h-3 w-3 text-amber-600" />
-                        <span>Pending</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-              ),
-            },
-            {
-              key: "label",
-              header: "Checklist Subtask",
-              sort: (st) => st.label,
-              render: (st) => (
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "font-medium text-sm",
-                        st.done ? "line-through text-muted-foreground" : "text-foreground",
-                      )}
-                    >
-                      {st.label}
-                    </span>
-                    {st.totalItems > 1 && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground"
-                      >
-                        Step {st.itemNumber} of {st.totalItems}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <span className="inline-flex items-center gap-1 font-mono text-primary font-semibold">
-                      {st.jobCode}
-                    </span>
-                    <span>·</span>
-                    <span className="truncate max-w-[200px]">{st.jobTitle}</span>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: "client",
-              header: "Client",
-              sort: (st) => st.clientName,
-              render: (st) => (
-                <span className="font-medium text-xs text-foreground">{st.clientName}</span>
-              ),
-            },
-            {
-              key: "service",
-              header: "Service",
-              sort: (st) => st.serviceName,
-              render: (st) => (
-                <span className="inline-block rounded bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
-                  {st.serviceName}
-                </span>
-              ),
-            },
-            {
-              key: "assigned",
-              header: "Staff",
-              render: (st) => (
-                <span className="text-xs text-muted-foreground">{st.assignedStaff}</span>
-              ),
-            },
-            {
-              key: "due_date",
-              header: "Due Date",
-              sort: (st) => st.dueDate ?? "",
-              render: (st) => (
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  {fmtDate(st.dueDate)}
-                </span>
-              ),
-            },
-            {
-              key: "action",
-              header: "",
-              render: (st) => (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-muted-foreground hover:text-primary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate({ to: "/jobs/$id", params: { id: st.jobId } });
-                  }}
-                  title="Open full job"
-                >
-                  Open Job
-                  <ArrowRight className="ml-1 h-3 w-3" />
-                </Button>
-              ),
-            },
-          ]}
-        />
-      ) : (
-        /* Tab 2: Parent Jobs Summary View */
-        <DataTable
-          rows={filteredJobs}
-          loading={jobsQuery.isLoading}
-          selectable
-          bulkActions={(selected, clearSelection) => (
-            <div className="flex items-center gap-2">
-              {canEdit("jobs") && (
-                <>
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
-                    onClick={() => handleBulkStatus(selected, "completed", clearSelection)}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Mark Done ({selected.length})
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="outline" className="h-8 text-xs font-medium">
-                        Status…
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => handleBulkStatus(selected, "in_progress", clearSelection)}
-                        className="cursor-pointer gap-2"
-                      >
-                        <Clock className="h-3.5 w-3.5 text-blue-600" />
-                        <span>In Progress</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleBulkStatus(selected, "on_hold", clearSelection)}
-                        className="cursor-pointer gap-2"
-                      >
-                        <PauseCircle className="h-3.5 w-3.5 text-amber-600" />
-                        <span>On Hold</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleBulkStatus(selected, "cancelled", clearSelection)}
-                        className="cursor-pointer gap-2 text-destructive"
-                      >
-                        <XCircle className="h-3.5 w-3.5" />
-                        <span>Cancelled</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </>
-              )}
-
-              {canDelete("jobs") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs font-medium gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 cursor-pointer"
-                  onClick={() => setJobsToDelete(selected)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete Selected ({selected.length})
-                </Button>
-              )}
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5 font-medium bg-background cursor-pointer"
-                onClick={() => {
-                  const dataToExport = selected.map((j) => ({
-                    "Job Code": j.job_code,
-                    "Task to Perform": j.title,
-                    Client: j.client_name ?? "",
-                    Status: label(jobDisplayStatus(j)),
-                    "Created Date": fmtDate(j.created_at),
-                  }));
-                  const stamp = new Date().toISOString().slice(0, 10);
-                  downloadCsv(`tasks_selected_${stamp}.csv`, dataToExport);
-                }}
-              >
-                <Download className="h-3.5 w-3.5" />
-                Export Selected ({selected.length})
-              </Button>
-            </div>
-          )}
-          onRowClick={(j) => navigate({ to: "/jobs/$id", params: { id: j.id } })}
-          empty="No jobs match these filters."
-          search={(j) => `${j.job_code} ${j.title} ${j.client_name ?? ""}`}
-          exportFilename="parent_jobs"
-          exportTransform={(j) => ({
-            "Job Code": j.job_code,
-            "Job Title": j.title,
-            Client: j.client_name ?? "",
-            Status: label(jobDisplayStatus(j)),
-            "Checklist Progress": `${j.checklist.filter((i) => i.done).length}/${j.checklist.length} done`,
-            "Created Date": fmtDate(j.created_at),
-          })}
-          toolbar={
-            <>
-              <ChecklistFilter
-                label="Status"
-                options={statusOptions}
-                selected={selectedStatuses}
-                onChange={setSelectedStatuses}
-                className="w-36"
-              />
-
-              <ClientSelect
-                value={clientFilter}
-                onChange={setClientFilter}
-                placeholder="All clients"
-                className="w-40 text-xs h-9"
-                allowClear
-              />
-
-              <NativeSelect
-                value={serviceFilter}
-                onChange={(e) => setServiceFilter(e.target.value)}
-                className="w-36 text-xs h-9"
-              >
-                <option value="">All services</option>
-                {uniqueServices.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </NativeSelect>
-
-              <DateRangePicker
-                from={dateFrom}
-                to={dateTo}
-                onFromChange={setDateFrom}
-                onToChange={setDateTo}
-                label="Date"
-              />
-            </>
-          }
-          columns={[
-            {
-              key: "job_code",
-              header: "Job Code",
-              sort: (j) => j.job_code,
-              render: (j) => (
-                <span className="font-mono text-xs font-bold text-primary">{j.job_code}</span>
-              ),
-            },
-            {
-              key: "service",
-              header: "Service",
-              sort: (j) => j.service_name ?? "",
-              render: (j) => (
-                <span className="inline-block rounded bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
-                  {j.service_name ?? "—"}
-                </span>
-              ),
-            },
-            {
-              key: "title",
-              header: "Job Title",
-              sort: (j) => j.title,
-              render: (j) => (
+            )}
+          </>
+        }
+        columns={[
+          {
+            key: "job_code",
+            header: "Job Code",
+            className: "min-w-[120px] whitespace-nowrap",
+            sort: (j) => j.job_code,
+            render: (j) => (
+              <span className="font-mono text-xs font-bold text-primary whitespace-nowrap">
+                {j.job_code}
+              </span>
+            ),
+          },
+          {
+            key: "service",
+            header: "Service",
+            sort: (j) => displayServiceName(j),
+            render: (j) => {
+              const isDone = j.status === "completed";
+              return (
                 <span
                   className={cn(
-                    "font-medium transition-all",
-                    j.status === "completed"
-                      ? "line-through text-muted-foreground/75"
-                      : "text-foreground",
+                    "inline-block rounded px-2 py-0.5 text-xs font-medium select-none transition-all",
+                    isDone
+                      ? "bg-muted/40 text-muted-foreground line-through decoration-muted-foreground/70"
+                      : "bg-muted/60 text-foreground",
                   )}
                 >
-                  {j.title}
+                  {displayServiceName(j)}
                 </span>
-              ),
+              );
             },
-            {
-              key: "client",
-              header: "Client",
-              sort: (j) => j.client_name ?? "",
-              render: (j) => (
-                <span className="font-medium text-muted-foreground">{j.client_name ?? "—"}</span>
-              ),
-            },
-            {
-              key: "progress",
-              header: "Checklist Progress",
-              render: (j) => {
-                const total = j.checklist.length;
-                const done = j.checklist.filter((i) => i.done).length;
-                if (total === 0) return <span className="text-xs text-muted-foreground">—</span>;
-                const pct = Math.round((done / total) * 100);
+          },
+          {
+            key: "client",
+            header: "Client",
+            sort: (j) => j.client_name ?? "",
+            render: (j) => (
+              <span className="font-medium text-xs text-foreground">{j.client_name ?? "—"}</span>
+            ),
+          },
+          {
+            key: "created_at",
+            header: "Created Date",
+            sort: (j) => j.created_at ?? "",
+            render: (j) => (
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                {fmtDate(j.created_at)}
+              </span>
+            ),
+          },
+          {
+            key: "fee",
+            header: "Fee",
+            sort: (j) => j.fee ?? 0,
+            render: (j) => (
+              <span className="text-xs font-mono font-semibold">
+                {canSeeAmounts("jobs") && j.fee != null ? inr(j.fee) : "-"}
+              </span>
+            ),
+          },
+          {
+            key: "billing",
+            header: "Billing",
+            className: "min-w-[130px] whitespace-nowrap",
+            render: (j) => {
+              if (j.invoices && j.invoices.length > 0) {
                 return (
-                  <div className="space-y-1 min-w-[120px]">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-muted-foreground">
-                        {done} of {total} done
-                      </span>
-                      <span className="font-medium font-mono">{pct}%</span>
-                    </div>
-                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all",
-                          done === total ? "bg-emerald-500" : "bg-primary",
-                        )}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    {j.invoices.map((inv) => (
+                      <Link
+                        key={inv.id}
+                        to="/invoices/$id"
+                        params={{ id: inv.id }}
+                        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium bg-muted/60 hover:bg-muted border border-border/50 transition-colors whitespace-nowrap"
+                        title={`Click to open Invoice ${inv.invoice_no}`}
+                      >
+                        <span className="font-mono text-[11px] text-primary underline underline-offset-2 whitespace-nowrap">
+                          {inv.invoice_no}
+                        </span>
+                      </Link>
+                    ))}
+                    {j.financial_status !== "closed" && (
+                      <StatusBadge status={j.financial_status} />
+                    )}
                   </div>
                 );
-              },
+              }
+              return <StatusBadge status={j.financial_status} />;
             },
-            {
-              key: "due_date",
-              header: "Due Date",
-              sort: (j) => j.due_date ?? "",
-              render: (j) => (
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  {fmtDate(j.due_date)}
-                </span>
-              ),
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (j) => <StatusBadge status={jobDisplayStatus(j)} />,
-            },
-          ]}
-        />
-      )}
-
-      <ConfirmDeleteDialog
-        open={Boolean(subtasksToDelete)}
-        onOpenChange={(open) => !open && setSubtasksToDelete(null)}
-        title={`Delete ${subtasksToDelete?.length ?? 0} Selected Checklist Subtask(s)?`}
-        description="Are you sure you want to delete the selected checklist subtasks? This will remove them from the corresponding jobs' checklists."
-        onConfirm={handleBulkDeleteSubtasks}
+          },
+          {
+            key: "done_by",
+            header: "Done By",
+            render: (j) => (
+              <span className="text-xs text-muted-foreground">
+                {j.status === "completed" ? (doneByMap.get(j.id) ?? "-") : "-"}
+              </span>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            render: (j) => <StatusBadge status={jobDisplayStatus(j)} />,
+          },
+        ]}
       />
 
       <Dialog

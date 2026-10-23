@@ -1248,12 +1248,7 @@ BEGIN
   PERFORM set_config('app.status_reason', COALESCE(_reason, ''), true);
   UPDATE public.jobs SET status = _status WHERE id = _job_id;
 
-  IF _status = 'completed' THEN
-    SELECT * INTO j FROM public.jobs WHERE id = _job_id;
-    IF j.auto_invoice AND j.financial_status = 'open' THEN
-      PERFORM public.auto_invoice_job(_job_id);
-    END IF;
-  END IF;
+  -- Invoices are strictly payment-driven and generated upon payment clearing
 END;
 $$;
 
@@ -1941,7 +1936,7 @@ create or replace function public.client_services_list(_client_id uuid) returns 
 create or replace function public.client_jobs_list(_client_id uuid) returns table(id uuid, job_code text, client_id uuid, service_id uuid, service_name text, title text, period_start date, period_end date, fee numeric, discount numeric, net_amount numeric, due_date date, assigned_staff uuid, assigned_staff_name text, status text, financial_status text, notes text, auto_invoice boolean, created_at timestamptz, invoice_id uuid, invoice_no text, invoice_status text) language sql stable security definer set search_path=public as $$ select j.id, j.job_code, j.client_id, j.service_id, s.name, j.title, j.period_start, j.period_end, case when public.has_capability('jobs','amounts') then j.fee end, case when public.has_capability('jobs','amounts') then j.discount end, case when public.has_capability('jobs','amounts') then j.net_amount end, j.due_date, j.assigned_staff, pf.full_name, j.status, j.financial_status, j.notes, j.auto_invoice, j.created_at, inv.id, inv.invoice_no, inv.status from public.jobs j left join public.services s on s.id=j.service_id left join public.profiles pf on pf.id=j.assigned_staff left join lateral (select i.id, i.invoice_no, i.status from public.invoice_items ii join public.invoices i on i.id=ii.invoice_id where ii.job_id=j.id and i.status<>'cancelled' order by i.created_at desc limit 1) inv on true where j.client_id=_client_id and j.firm_id=public.current_firm_id() and public.has_capability('jobs','view') order by j.created_at desc $$;
 create or replace function public.client_payments_list(_client_id uuid) returns table(id uuid, payment_code text, client_id uuid, job_id uuid, amount numeric, allocated_amount numeric, mode text, payment_date date, reference text, narration text, status text, created_at timestamptz) language sql stable security definer set search_path=public as $$ select p.id, p.payment_code, p.client_id, p.job_id, case when public.has_capability('payments','amounts') then p.amount end, case when public.has_capability('payments','amounts') then p.allocated_amount end, p.mode, p.payment_date, p.reference, p.narration, p.status, p.created_at from public.payments p where p.client_id=_client_id and p.firm_id=public.current_firm_id() and public.has_capability('payments','view') order by p.payment_date desc $$;
 create or replace function public.client_lookup() returns table(id uuid, client_code text, name text) language sql stable security definer set search_path=public as $$ select id, client_code, name from public.clients where status='active' and firm_id=public.current_firm_id() and (public.has_capability('clients','view') or public.has_capability('payments','create')) order by name $$;
-create or replace function public.update_job_status(_job_id uuid, _status text, _reason text) returns void language plpgsql security definer set search_path=public as $$ begin perform public.firm_guard('jobs', _job_id); if not public.has_capability('jobs','edit') then raise exception 'Not authorised'; end if; perform set_config('app.status_reason', coalesce(_reason,''), true); update public.jobs set status=_status where id=_job_id; end $$;
+create or replace function public.update_job_status(_job_id uuid, _status text, _reason text) returns void language plpgsql security definer set search_path=public as $$ declare j record; begin perform public.firm_guard('jobs', _job_id); if not public.has_capability('jobs','edit') then raise exception 'Not authorised'; end if; perform set_config('app.status_reason', coalesce(_reason,''), true); update public.jobs set status=_status where id=_job_id; end $$;
 create or replace function public.generate_recurring_jobs(_upto date) returns integer language plpgsql security definer set search_path=public as $$ declare cs record; ps date; pe date; step interval; n int := 0; svc record; lbl text; begin if not public.has_capability('recurring','edit') then raise exception 'Not authorised'; end if; for cs in select * from public.client_services where status='active' and firm_id=public.current_firm_id() loop select * into svc from public.services where id=cs.service_id; if cs.frequency='one_time' then insert into public.jobs(client_id, service_id, client_service_id, title, period_start, period_end, fee, due_date, assigned_staff, created_by) values (cs.client_id, cs.service_id, cs.id, svc.name, cs.start_date, cs.start_date, cs.agreed_fee, cs.start_date + cs.due_days, cs.assigned_staff, auth.uid()) on conflict do nothing; if found then n := n + 1; end if; continue; end if; step := case cs.frequency when 'monthly' then interval '1 month' when 'quarterly' then interval '3 months' when 'half_yearly' then interval '6 months' else interval '1 year' end; ps := date_trunc('month', cs.start_date)::date; while ps <= _upto and (cs.end_date is null or ps <= cs.end_date) loop pe := (ps + step - interval '1 day')::date; lbl := case cs.frequency when 'monthly' then to_char(ps,'Mon YYYY') when 'yearly' then 'FY ' || to_char(ps,'YYYY') else to_char(ps,'Mon YYYY') || ' – ' || to_char(pe,'Mon YYYY') end; insert into public.jobs(client_id, service_id, client_service_id, title, period_start, period_end, fee, due_date, assigned_staff, created_by) values (cs.client_id, cs.service_id, cs.id, svc.name || ' – ' || lbl, ps, pe, cs.agreed_fee, pe + cs.due_days, cs.assigned_staff, auth.uid()) on conflict do nothing; if found then n := n + 1; end if; ps := (ps + step)::date; end loop; end loop; return n; end $$;
 create or replace function public.reverse_payment(_payment_id uuid, _reason text) returns void language plpgsql security definer set search_path=public as $$ declare r record; begin if not public.has_capability('payments','edit') then raise exception 'Not authorised'; end if; perform public.firm_guard('payments', _payment_id); if coalesce(trim(_reason),'') = '' then raise exception 'Reason is required'; end if; if exists(select 1 from public.payments where id=_payment_id and status='reversed') then raise exception 'Already reversed'; end if; update public.payments set status='reversed' where id=_payment_id; for r in select id from public.payment_allocations where payment_id=_payment_id and not reversed loop update public.payment_allocations set reversed=true, reversed_at=now() where id=r.id; end loop; insert into public.payment_reversals(payment_id, reason, reversed_by) values (_payment_id, _reason, auth.uid()); perform public.recalc_payment(_payment_id); end $$;
 create or replace function public.reverse_allocation(_allocation_id uuid, _reason text) returns void language plpgsql security definer set search_path=public as $$ begin if not public.has_capability('payments','edit') then raise exception 'Not authorised'; end if; perform public.firm_guard('payment_allocations', _allocation_id); update public.payment_allocations set reversed=true, reversed_at=now() where id=_allocation_id and not reversed; insert into public.audit_logs(user_id, action, module, record_id, reason) values (auth.uid(),'allocation_reversed','payment_allocations',_allocation_id::text,_reason); end $$;
@@ -3441,4 +3436,69 @@ GRANT EXECUTE ON FUNCTION public.generate_recurring_jobs(date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.generate_recurring_jobs_for_firm(uuid, date) TO service_role, authenticated;
 GRANT EXECUTE ON FUNCTION public.generate_recurring_jobs_all() TO service_role;
 GRANT EXECUTE ON FUNCTION public.next_doc_code(text, date, uuid) TO authenticated, service_role;
+
+-- ==============================================================================
+-- Multi-Task Job Code Sharing (2 tasks can have same job code, 2 jobs cannot)
+-- ==============================================================================
+
+alter table public.jobs add column if not exists batch_id text;
+update public.jobs
+set batch_id = coalesce(substring(notes from '\[Batch:\s*([^\]]+)\]'), id::text)
+where batch_id is null;
+
+create index if not exists jobs_batch_id_idx on public.jobs(batch_id);
+
+drop index if exists public.jobs_job_code_firm_uniq;
+drop index if exists public.jobs_job_code_key;
+alter table public.jobs drop constraint if exists jobs_job_code_key;
+alter table public.jobs drop constraint if exists jobs_job_code_firm_uniq;
+
+create index if not exists jobs_firm_job_code_idx on public.jobs(firm_id, job_code);
+
+create or replace function public.stamp_job_doc_no() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if new.job_code is null then
+    if new.batch_id is not null then
+      select job_code into new.job_code
+      from public.jobs
+      where firm_id = new.firm_id
+        and batch_id = new.batch_id
+        and job_code is not null
+      limit 1;
+    end if;
+
+    if new.job_code is null then
+      new.job_code := public.next_doc_code('JOB', coalesce(new.created_at::date, current_date), new.firm_id);
+    end if;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.validate_job_code_uniqueness()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare
+  existing_record record;
+begin
+  if new.job_code is not null then
+    select id, batch_id, client_id into existing_record
+    from public.jobs
+    where firm_id = new.firm_id
+      and job_code = new.job_code
+      and id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid)
+    limit 1;
+
+    if existing_record.id is not null then
+      if (new.batch_id is null or new.batch_id <> existing_record.batch_id or new.client_id <> existing_record.client_id) then
+        raise exception 'Job code % is already assigned to a different job. Two different jobs cannot have the same job code.', new.job_code;
+      end if;
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists jobs_validate_job_code on public.jobs;
+create trigger jobs_validate_job_code
+before insert or update of job_code, batch_id, client_id on public.jobs
+for each row execute function public.validate_job_code_uniqueness();
+
 

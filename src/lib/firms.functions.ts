@@ -861,27 +861,76 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
             })
             .eq("id", pay.id);
 
-          if (existingInv) {
-            const newPaid = Number(existingInv.amount_paid || 0) + allocatedToJob;
-            const newStatus =
-              newPaid >= Number(existingInv.total || 0) - 0.01 ? "paid" : "partial";
-            await supabaseAdmin
-              .from("invoices")
-              .update({ amount_paid: newPaid, status: newStatus })
-              .eq("id", existingInv.id);
+          let invoiceId: string | null = existingInv?.id ?? null;
 
+          if (!invoiceId) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const invTotal = curNet > 0 ? curNet : allocatedToJob;
+
+            const { data: newInv, error: invErr } = await supabaseAdmin
+              .from("invoices")
+              .insert({
+                firm_id: client.firm_id,
+                client_id: data.clientId,
+                job_id: job.id,
+                payment_id: pay.id,
+                invoice_date: data.paymentDate || todayStr,
+                due_date: data.paymentDate || todayStr,
+                subtotal: invTotal,
+                total: invTotal,
+                amount_paid: 0,
+                status: "unpaid",
+                notes: `Generated upon payment ${pay.payment_code}`,
+                created_by: context.userId || null,
+              })
+              .select("id")
+              .single();
+
+            if (!invErr && newInv) {
+              invoiceId = newInv.id;
+              await supabaseAdmin.from("invoice_items").insert({
+                firm_id: client.firm_id,
+                invoice_id: invoiceId,
+                job_id: job.id,
+                description: (job as any).title || "Professional Services",
+                amount: invTotal,
+              });
+              await supabaseAdmin.from("jobs").update({ financial_status: "invoiced" }).eq("id", job.id);
+            }
+          }
+
+          if (invoiceId) {
             await supabaseAdmin.from("payment_allocations").insert({
               firm_id: client.firm_id,
               payment_id: pay.id,
-              invoice_id: existingInv.id,
+              invoice_id: invoiceId,
               amount: allocatedToJob,
-              notes: `Auto-allocated from payment receipt ${pay.payment_code}`,
+              allocated_by: context.userId || null,
             });
 
-            if (newStatus === "paid") {
+            const { data: invRow } = await supabaseAdmin
+              .from("invoices")
+              .select("total, amount_paid, status")
+              .eq("id", invoiceId)
+              .single();
+
+            const isFull = invRow
+              ? Number(invRow.amount_paid || 0) >= Number(invRow.total || 0) - 0.01
+              : false;
+            const newStatus = isFull ? "paid" : "partially_paid";
+
+            await supabaseAdmin
+              .from("invoices")
+              .update({
+                amount_paid: isFull ? Number(invRow?.total || 0) : Number(invRow?.amount_paid || allocatedToJob),
+                status: newStatus,
+              })
+              .eq("id", invoiceId);
+
+            if (isFull) {
               await supabaseAdmin
                 .from("jobs")
-                .update({ financial_status: "closed" })
+                .update({ financial_status: "closed", status: "completed" })
                 .eq("id", job.id);
             }
           }
@@ -897,18 +946,18 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
               gross_fee: curFee,
               discount: curDisc,
               final_amount: Math.max(0, curFee - curDisc - newTotalAdvance),
-              status: isSquaredOff ? "squared_off" : "draft",
+              status: isSquaredOff ? "squared_off" : "cleared",
               squared_off_at: isSquaredOff ? new Date().toISOString() : null,
               squared_off_by: isSquaredOff ? context.userId : null,
-              notes: `Advance payment ${pay.payment_code} recorded & allocated`,
+              notes: `Payment ${pay.payment_code} recorded & allocated to invoice`,
             },
             { onConflict: "job_id" },
           );
 
-          if (isSquaredOff && !existingInv) {
+          if (isSquaredOff) {
             await supabaseAdmin
               .from("jobs")
-              .update({ financial_status: "closed" })
+              .update({ financial_status: "closed", status: "completed" })
               .eq("id", job.id);
           }
         }
@@ -1150,7 +1199,15 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         if (invRow) {
           const isPaid =
             invRow.status === "paid" ||
-            Number(invRow.amount_paid || 0) >= Number(invRow.total || 0);
+            Number(invRow.amount_paid || 0) >= Number(invRow.total || 0) - 0.01;
+
+          await supabaseAdmin
+            .from("invoices")
+            .update({
+              status: isPaid ? "paid" : "partially_paid",
+              amount_paid: isPaid ? Number(invRow.total || 0) : Number(invRow.amount_paid || 0),
+            })
+            .eq("id", invoiceId);
 
           if (isPaid) {
             await supabaseAdmin
@@ -1165,7 +1222,7 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
                 status: "squared_off",
                 squared_off_at: new Date().toISOString(),
                 squared_off_by: userId,
-                advance: jAlloc.amount,
+                advance: Number(invRow.total || 0),
                 discount: jAlloc.discount || 0,
                 final_amount: 0,
                 notes: "Manually allocated & cleared from Payment Desk",

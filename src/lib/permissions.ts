@@ -18,7 +18,7 @@ export const MODULES = [
 ] as const;
 export type Module = (typeof MODULES)[number];
 
-export const ACTIONS = ["view", "create", "edit", "delete", "amounts"] as const;
+export const ACTIONS = ["view", "create", "edit", "update", "delete", "amounts"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export type Grants = Record<Action, boolean>;
@@ -46,6 +46,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   view: "View",
   create: "Create",
   edit: "Edit",
+  update: "Update",
   delete: "Delete",
   amounts: "Amounts",
 };
@@ -54,6 +55,7 @@ export const ACTION_BLURB: Record<Action, string> = {
   view: "Open the list and its records.",
   create: "Add new records.",
   edit: "Change existing records.",
+  update: "Change the status of work only (done / in progress / etc.).",
   delete: "Remove records. Refused for anything with financial history.",
   amounts: "See fees, amounts and totals. Turning this off shows a dash instead.",
 };
@@ -69,6 +71,7 @@ export const NO_GRANTS: Grants = {
   view: false,
   create: false,
   edit: false,
+  update: false,
   delete: false,
   amounts: false,
 };
@@ -95,15 +98,16 @@ export function fallbackGrants(roles: readonly string[]): GrantsByModule {
         view: true,
         create: true,
         edit: true,
+        update: true,
         // Payments are reversed, never deleted.
         delete: m !== "payments",
         amounts: true,
       };
     } else if (roles.includes("staff")) {
-      out[m] = { view: true, create: false, edit: m === "jobs", delete: false, amounts: false };
+      out[m] = { view: true, create: false, edit: m === "jobs", update: m === "jobs", delete: false, amounts: false };
     } else if (roles.includes("cashier")) {
       const pay = m === "payments";
-      out[m] = { view: pay, create: pay, edit: false, delete: false, amounts: pay };
+      out[m] = { view: pay, create: pay, edit: false, update: false, delete: false, amounts: pay };
     } else {
       out[m] = NO_GRANTS;
     }
@@ -128,6 +132,7 @@ export function parseGrants(raw: unknown): GrantsByModule {
       view: !!g?.view,
       create: !!g?.create,
       edit: !!g?.edit,
+      update: !!(g?.update ?? g?.edit),
       delete: !!g?.delete,
       amounts: !!g?.amounts,
     };
@@ -141,6 +146,7 @@ export type MatrixRow = {
   can_view: boolean;
   can_create: boolean;
   can_edit: boolean;
+  can_update: boolean;
   can_delete: boolean;
   can_amounts: boolean;
   editable: boolean;
@@ -156,6 +162,7 @@ export function matrixToGrants(rows: MatrixRow[]): Record<string, GrantsByModule
       view: r.can_view,
       create: r.can_create,
       edit: r.can_edit,
+      update: r.can_update ?? r.can_edit,
       delete: r.can_delete,
       amounts: r.can_amounts,
     };

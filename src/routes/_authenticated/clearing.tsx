@@ -25,6 +25,10 @@ import {
   Zap,
   AlertTriangle,
   CalendarClock,
+  ExternalLink,
+  RotateCcw,
+  Eye,
+  Download,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -51,6 +55,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { manualAllocatePayment, recordPaymentEntry } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 import {
+  downloadCsv,
   errMsg,
   fmtDate,
   inr,
@@ -112,6 +117,8 @@ interface ClientJob {
   job_code: string;
   title: string;
   client_id: string;
+  client_name?: string;
+  client_code?: string;
   status: string;
   financial_status: string | null;
   fee: number;
@@ -153,7 +160,7 @@ function ClearingDeskPage() {
   const qc = useQueryClient();
   const { canCreate, canEdit } = usePermissions();
 
-  // Filters for Main Payments History View
+  // Filters for Main Payments View
   const [statusFilter, setStatusFilter] = useState<"all" | "available" | "partial" | "cleared">(
     "available",
   );
@@ -175,6 +182,7 @@ function ClearingDeskPage() {
 
   // Complete Window Allocation Workspace State
   const [allocatingPayment, setAllocatingPayment] = useState<PaymentRow | null>(null);
+  const [viewingPaymentDetails, setViewingPaymentDetails] = useState<PaymentRow | null>(null);
   const [jobAllocations, setJobAllocations] = useState<
     Record<string, { amount: number; discount: number }>
   >({});
@@ -217,16 +225,26 @@ function ClearingDeskPage() {
 
         (p.payment_allocations ?? []).forEach((pa: any) => {
           const inv = pa.invoices;
-          if (inv?.jobs) {
-            clearedList.push({
-              job_id: inv.jobs.id,
-              job_code: inv.jobs.job_code,
-              title: inv.jobs.title,
-              allocated_amount: Number(pa.amount || 0),
-              invoice_no: inv.invoice_no,
-            });
-          }
+          const linkedJob = inv?.jobs || (p.job_id && inv?.job_id === p.job_id ? p.jobs : null);
+          clearedList.push({
+            job_id: linkedJob?.id ?? inv?.job_id ?? p.job_id ?? undefined,
+            job_code: linkedJob?.job_code ?? p.jobs?.job_code ?? (inv?.invoice_no ? `Inv ${inv.invoice_no}` : "—"),
+            title: linkedJob?.title ?? p.jobs?.title ?? (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : "Compliance Settlement"),
+            allocated_amount: Number(pa.amount || 0),
+            invoice_no: inv?.invoice_no ?? undefined,
+          });
         });
+
+        // If no payment_allocations rows exist, but the payment was allocated to a job directly (e.g. pre-invoice advance):
+        if (clearedList.length === 0 && p.job_id && alloc > 0) {
+          clearedList.push({
+            job_id: p.job_id,
+            job_code: p.jobs?.job_code ?? "Job",
+            title: p.jobs?.title ?? "Advance compliance clearing",
+            allocated_amount: alloc,
+            invoice_no: undefined,
+          });
+        }
 
         return {
           id: p.id,
@@ -258,9 +276,9 @@ function ClearingDeskPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status)",
+          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status)",
         )
-        .order("created_at", { ascending: false });
+        .order("job_code", { ascending: true });
 
       if (error) throw error;
 
@@ -304,6 +322,8 @@ function ClearingDeskPage() {
           job_code: j.job_code ?? "",
           title: j.title ?? "",
           client_id: j.client_id ?? "",
+          client_name: j.clients?.name ?? "Client",
+          client_code: j.clients?.client_code ?? "",
           status: j.status ?? "pending",
           financial_status: j.financial_status ?? "open",
           fee,
@@ -361,17 +381,47 @@ function ClearingDeskPage() {
     return allPayments.reduce((sum, p) => sum + p.available_amount, 0);
   }, [allPayments]);
 
-  const totalUnclearedJobsFee = useMemo(() => {
-    return allJobs
-      .filter((j) => j.financial_status !== "closed")
-      .reduce((sum, j) => sum + j.net_amount, 0);
-  }, [allJobs]);
+  const totalReceiptsAmount = useMemo(() => {
+    return allPayments.reduce((sum, p) => sum + p.amount, 0);
+  }, [allPayments]);
 
-  const totalReimbursableExpenses = useMemo(() => {
-    return allExpenses
-      .filter((e) => e.client_id && !e.notes?.includes("Cleared in"))
-      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  }, [allExpenses]);
+  const totalClearedAmount = useMemo(() => {
+    return allPayments.reduce((sum, p) => sum + p.allocated_amount, 0);
+  }, [allPayments]);
+
+  const statusCounts = useMemo(() => {
+    let available = 0;
+    let partial = 0;
+    let cleared = 0;
+    for (const p of allPayments) {
+      if (p.available_amount > 0) available++;
+      if (p.allocated_amount > 0 && p.available_amount > 0) partial++;
+      if (p.available_amount <= 0) cleared++;
+    }
+    return { available, partial, cleared, all: allPayments.length };
+  }, [allPayments]);
+
+  const handleExportClearingCsv = () => {
+    const dataToExport = filteredPayments.map((p) => ({
+      "Receipt Code": p.payment_code,
+      Date: fmtDate(p.payment_date),
+      Client: p.client_name,
+      "Client Code": p.client_code ?? "",
+      Mode: MODES[p.mode as keyof typeof MODES] ?? p.mode,
+      "Total Amount": p.amount,
+      "Allocated Amount": p.allocated_amount,
+      "Available Balance": p.available_amount,
+      Status:
+        p.available_amount <= 0
+          ? "Fully Cleared"
+          : p.allocated_amount > 0
+            ? "Partially Allocated"
+            : "Available to Allocate",
+      Narration: p.narration ?? "",
+    }));
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`payment_clearing_${stamp}.csv`, dataToExport);
+  };
 
   // Open Allocation Workspace in Complete Window
   const handleOpenAllocation = (payment: PaymentRow, targetJobId?: string) => {
@@ -406,47 +456,58 @@ function ClearingDeskPage() {
 
   // URL deep-linking (?payment=... or ?job=... or ?client=...)
   useEffect(() => {
-    if (!allPayments.length) return;
-    if (search.payment) {
+    if (search.payment && allPayments.length > 0) {
       const match = allPayments.find((p) => p.id === search.payment);
-      if (match && (!allocatingPayment || allocatingPayment.id !== match.id)) {
-        handleOpenAllocation(match, search.job);
+      if (match) {
+        if (match.available_amount <= 0.01) {
+          if (!viewingPaymentDetails || viewingPaymentDetails.id !== match.id) {
+            setViewingPaymentDetails(match);
+          }
+        } else if (!allocatingPayment || allocatingPayment.id !== match.id) {
+          handleOpenAllocation(match, search.job);
+        }
       }
-    } else if (search.job) {
-      const match = allPayments.find(
-        (p) =>
-          (p.job_id === search.job || (search.client && p.client_id === search.client)) &&
-          p.available_amount > 0,
-      );
-      if (match && (!allocatingPayment || allocatingPayment.id !== match.id)) {
-        handleOpenAllocation(match, search.job);
-      } else if (!match && allJobs.length > 0 && !allocatingPayment) {
-        // No unallocated credit available for this client: automatically open Record & Clear Payment modal for this job!
-        const targetJob = allJobs.find((j) => j.id === search.job);
-        if (targetJob && targetJob.net_amount > 0 && !isRecordModalOpen) {
-          setRecordForm({
-            clientId: targetJob.client_id,
-            jobId: targetJob.id,
-            amount: String(targetJob.net_amount),
-            paymentDate: today(),
-            mode: "bank",
-            narration: `Clearing settlement for job ${targetJob.job_code} (${targetJob.title})`,
+    } else if (search.job && allJobs.length > 0) {
+      const targetJob = allJobs.find((j) => j.id === search.job);
+      if (targetJob) {
+        const creditPayment = allPayments.find(
+          (p) =>
+            (p.job_id === targetJob.id || (targetJob.client_id && p.client_id === targetJob.client_id)) &&
+            p.available_amount > 0,
+        );
+        if (creditPayment && (!allocatingPayment || allocatingPayment.id !== creditPayment.id)) {
+          handleOpenAllocation(creditPayment, targetJob.id);
+        } else if (!creditPayment && targetJob.net_amount > 0 && !isRecordModalOpen && !allocatingPayment) {
+          setRecordForm((prev) => {
+            if (prev.jobId === targetJob.id && isRecordModalOpen) return prev;
+            return {
+              clientId: targetJob.client_id,
+              jobId: targetJob.id,
+              amount: String(targetJob.net_amount),
+              paymentDate: today(),
+              mode: "bank",
+              narration: `Clearing settlement for job ${targetJob.job_code} (${targetJob.title})`,
+            };
           });
           setIsRecordModalOpen(true);
         }
       }
     }
-  }, [search.payment, search.job, search.client, allPayments]);
+  }, [search.payment, search.job, search.client, allPayments.length, allJobs.length]);
 
-  // Jobs needing payment for the selected client in the allocation workspace
+  // Jobs needing payment for the selected client in the allocation workspace (ordered by job_code)
   const clientJobsToPay = useMemo(() => {
     if (!allocatingPayment) return [];
-    return allJobs.filter(
-      (j) =>
-        j.client_id === allocatingPayment.client_id &&
-        j.financial_status !== "closed" &&
-        j.net_amount > 0,
-    );
+    return allJobs
+      .filter(
+        (j) =>
+          j.client_id === allocatingPayment.client_id &&
+          j.financial_status !== "closed" &&
+          j.net_amount > 0,
+      )
+      .sort((a, b) =>
+        (a.job_code ?? "").localeCompare(b.job_code ?? "", undefined, { numeric: true }),
+      );
   }, [allocatingPayment, allJobs]);
 
   // Expenses needing payment for the selected client in the allocation workspace
@@ -802,9 +863,8 @@ function ClearingDeskPage() {
         qc.invalidateQueries({ queryKey: ["jobs"] }),
         qc.invalidateQueries({ queryKey: ["invoices"] }),
         qc.invalidateQueries({ queryKey: ["payments"] }),
+        qc.invalidateQueries({ queryKey: ["receivables"] }),
       ]);
-
-      navigate({ to: "/payments" });
     } catch (err: any) {
       toast.dismiss(toastId);
       toast.error(errMsg(err));
@@ -867,7 +927,10 @@ function ClearingDeskPage() {
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["clearing-payments-list"] }),
+        qc.invalidateQueries({ queryKey: ["clearing-jobs-list"] }),
         qc.invalidateQueries({ queryKey: ["payments"] }),
+        qc.invalidateQueries({ queryKey: ["jobs"] }),
+        qc.invalidateQueries({ queryKey: ["receivables"] }),
       ]);
     } catch (err: any) {
       toast.dismiss(toastId);
@@ -1697,6 +1760,18 @@ function ClearingDeskPage() {
                 Receivables Ageing
               </Button>
             </Link>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleExportClearingCsv}
+              disabled={!filteredPayments.length}
+              className="gap-1.5 text-xs font-medium"
+              title="Export filtered payments to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
             {canCreate("payments") && (
               <Button onClick={() => setIsRecordModalOpen(true)} className="gap-1.5 shadow-sm">
                 <Plus className="h-4 w-4" />
@@ -1713,13 +1788,32 @@ function ClearingDeskPage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Available Advance Balance
+                Total Receipts Received
+              </p>
+              <h3 className="text-2xl font-bold font-mono text-primary mt-1">
+                {inr(totalReceiptsAmount)}
+              </h3>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Total payments deposited across {allPayments.length} receipts
+              </p>
+            </div>
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+              <ReceiptIndianRupee className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-none border border-border/80">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Available to Allocate
               </p>
               <h3 className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
                 {inr(totalAvailableAdvance)}
               </h3>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Unallocated funds across all active client receipts
+                Unallocated advance balance ready to clear against compliance work
               </p>
             </div>
             <div className="h-10 w-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
@@ -1732,95 +1826,102 @@ function ClearingDeskPage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Uncleared Jobs Due
-              </p>
-              <h3 className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-                {inr(totalUnclearedJobsFee)}
-              </h3>
-              <div className="mt-1">
-                <Link
-                  to="/outstanding"
-                  className="text-[11px] text-primary hover:underline font-medium inline-flex items-center gap-1"
-                >
-                  View client pendings & ageing →
-                </Link>
-              </div>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
-              <ReceiptIndianRupee className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-none border border-border/80">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Client Outlays &amp; Expenses
+                Total Cleared &amp; Settled
               </p>
               <h3 className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
-                {inr(totalReimbursableExpenses)}
+                {inr(totalClearedAmount)}
               </h3>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Direct client fees &amp; expenses awaiting reimbursement
+                Funds allocated and cleared against client jobs
               </p>
             </div>
             <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
-              <CreditCard className="h-5 w-5" />
+              <CheckCircle2 className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Main Payment History & Clearing Table */}
+      {/* SINGLE WORKFLOW: PAYMENT RECEIPTS CLEARING DESK */}
       <DataTable
         rows={filteredPayments}
         loading={paymentsQuery.isLoading}
         search={(p) =>
           `${p.payment_code} ${p.client_name} ${p.client_code} ${p.job_code ?? ""} ${p.job_title ?? ""} ${p.cleared_jobs?.map((c) => c.job_code).join(" ") ?? ""} ${p.narration ?? ""}`
         }
-        exportFilename="payment_clearing_history"
-        onRowClick={(p) => handleOpenAllocation(p)}
+        onRowClick={(p) => {
+          if (p.available_amount <= 0.01) {
+            setViewingPaymentDetails(p);
+          } else {
+            handleOpenAllocation(p);
+          }
+        }}
         toolbar={
           <>
-            {/* Quick Status Segmented Filter */}
-            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg text-xs">
-              <Button
-                type="button"
-                variant={statusFilter === "available" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setStatusFilter("available")}
-                className="h-7 px-2.5 text-xs font-medium"
-              >
-                Available to Allocate
-              </Button>
-              <Button
-                type="button"
-                variant={statusFilter === "partial" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setStatusFilter("partial")}
-                className="h-7 px-2.5 text-xs font-medium text-amber-600"
-              >
-                Partially Allocated
-              </Button>
-              <Button
-                type="button"
-                variant={statusFilter === "cleared" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setStatusFilter("cleared")}
-                className="h-7 px-2.5 text-xs font-medium text-emerald-600"
-              >
-                Fully Cleared
-              </Button>
-              <Button
-                type="button"
-                variant={statusFilter === "all" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setStatusFilter("all")}
-                className="h-7 px-2.5 text-xs font-medium text-muted-foreground"
-              >
-                All
-              </Button>
+            {/* Elevated Status Segmented Control */}
+            <div className="inline-flex items-center gap-1 rounded-xl border border-border/70 bg-muted/50 p-1 text-xs shadow-xs">
+              {[
+                {
+                  id: "available" as const,
+                  label: "Available to Allocate",
+                  count: statusCounts.available,
+                  activeColor: "bg-background text-primary border-primary/30 shadow-md font-semibold",
+                  activeDot: "bg-primary",
+                  activeBadge: "bg-primary/10 text-primary font-bold",
+                },
+                {
+                  id: "partial" as const,
+                  label: "Partially Allocated",
+                  count: statusCounts.partial,
+                  activeColor: "bg-background text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-md font-semibold",
+                  activeDot: "bg-amber-500",
+                  activeBadge: "bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold",
+                },
+                {
+                  id: "cleared" as const,
+                  label: "Fully Cleared",
+                  count: statusCounts.cleared,
+                  activeColor: "bg-background text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-md font-semibold",
+                  activeDot: "bg-emerald-500",
+                  activeBadge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold",
+                },
+                {
+                  id: "all" as const,
+                  label: "All",
+                  count: statusCounts.all,
+                  activeColor: "bg-background text-foreground border-border shadow-md font-semibold",
+                  activeDot: "bg-foreground",
+                  activeBadge: "bg-foreground/10 text-foreground font-bold",
+                },
+              ].map((tab) => {
+                const isActive = statusFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatusFilter(tab.id)}
+                    className={cn(
+                      "relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-all duration-150 cursor-pointer select-none",
+                      isActive
+                        ? cn("border", tab.activeColor)
+                        : "text-muted-foreground hover:text-foreground hover:bg-background/40 border-transparent font-medium",
+                    )}
+                  >
+                    {isActive && (
+                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", tab.activeDot)} />
+                    )}
+                    <span>{tab.label}</span>
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 py-0.2 text-[10px] font-mono transition-colors",
+                        isActive ? tab.activeBadge : "bg-muted text-muted-foreground/80 font-normal",
+                      )}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <ClientSelect
@@ -1838,17 +1939,36 @@ function ClearingDeskPage() {
               onToChange={setDateTo}
               label="Date"
             />
+
+            {(statusFilter !== "available" || clientFilter || dateFrom || dateTo) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setStatusFilter("available");
+                  setClientFilter("");
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                title="Reset all filters"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
+              </Button>
+            )}
           </>
         }
         columns={[
           {
             key: "payment_code",
             header: "Receipt & Date",
-            className: "w-28",
+            className: "min-w-[120px] whitespace-nowrap",
             sort: (p) => p.payment_date,
             render: (p) => (
               <div>
-                <span className="font-mono text-xs font-semibold text-primary block leading-tight">
+                <span className="font-mono text-xs font-semibold text-primary block leading-tight whitespace-nowrap">
                   {p.payment_code}
                 </span>
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap block mt-0.5">
@@ -1864,7 +1984,10 @@ function ClearingDeskPage() {
             sort: (p) => p.client_name,
             render: (p) => (
               <div>
-                <div className="text-xs font-medium text-foreground truncate" title={p.client_name}>
+                <div
+                  className="text-xs font-medium text-foreground truncate"
+                  title={p.client_name}
+                >
                   {p.client_name}
                 </div>
                 {p.client_code && (
@@ -1876,53 +1999,14 @@ function ClearingDeskPage() {
             ),
           },
           {
-            key: "job",
-            header: "Origin / Cleared Against",
-            className: "min-w-[130px] max-w-[180px]",
-            sort: (p) => p.job_code ?? p.cleared_jobs?.[0]?.job_code ?? "",
-            render: (p) => (
-              <div className="space-y-0.5">
-                {p.job_code ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-[9px] uppercase font-semibold text-muted-foreground">
-                      For:
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-[10px] font-bold text-primary bg-primary/5 border-primary/20 py-0 px-1.5 h-4.5"
-                      title={p.job_title ?? undefined}
-                    >
-                      {p.job_code}
-                    </Badge>
-                  </div>
-                ) : null}
-                {p.cleared_jobs && p.cleared_jobs.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {p.cleared_jobs.map((cj, i) => (
-                      <Badge
-                        key={i}
-                        variant="secondary"
-                        className="text-[9px] font-mono py-0 px-1.5 h-4.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
-                        title={`${cj.job_code}: ${cj.title} (${inr(cj.allocated_amount)})`}
-                      >
-                        {cj.job_code} ({inr(cj.allocated_amount)})
-                      </Badge>
-                    ))}
-                  </div>
-                ) : !p.job_code ? (
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    General Advance
-                  </span>
-                ) : null}
-              </div>
-            ),
-          },
-          {
             key: "mode",
             header: "Mode",
             className: "w-16",
             render: (p) => (
-              <Badge variant="outline" className="text-[10px] capitalize font-medium py-0 px-1.5 whitespace-nowrap">
+              <Badge
+                variant="outline"
+                className="text-[10px] capitalize font-medium py-0 px-1.5 whitespace-nowrap"
+              >
                 {MODES[p.mode as keyof typeof MODES] ?? p.mode}
               </Badge>
             ),
@@ -2001,19 +2085,36 @@ function ClearingDeskPage() {
           {
             key: "action",
             header: "",
-            className: "w-20 text-right",
+            className: "w-28 text-right",
             render: (p) => (
-              <Button
-                size="sm"
-                variant={p.available_amount > 0 ? "default" : "outline"}
-                className="h-7 text-xs px-2.5 font-medium cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAllocation(p);
-                }}
-              >
-                {p.available_amount > 0 ? "Clear" : "View"}
-              </Button>
+              <div className="flex items-center gap-1.5 justify-end">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs px-2 gap-1 cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setViewingPaymentDetails(p);
+                  }}
+                  title="View clearing details"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Details
+                </Button>
+                {p.available_amount > 0.01 && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-xs px-2.5 font-medium cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenAllocation(p);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
             ),
           },
         ]}
@@ -2140,6 +2241,184 @@ function ClearingDeskPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment & Clearing Details Modal */}
+      <Dialog
+        open={Boolean(viewingPaymentDetails)}
+        onOpenChange={(open) => !open && setViewingPaymentDetails(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-4">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4 text-primary" />
+                <span>Payment & Clearing Details</span>
+                <span className="font-mono text-sm text-primary font-bold">
+                  {viewingPaymentDetails?.payment_code}
+                </span>
+              </DialogTitle>
+              {viewingPaymentDetails && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-xs px-2 py-0.5 font-semibold",
+                    viewingPaymentDetails.available_amount <= 0.01
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                      : viewingPaymentDetails.allocated_amount > 0
+                        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                        : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30",
+                  )}
+                >
+                  {viewingPaymentDetails.available_amount <= 0.01
+                    ? "✓ Fully Cleared"
+                    : viewingPaymentDetails.allocated_amount > 0
+                      ? "Partially Cleared"
+                      : "Unallocated"}
+                </Badge>
+              )}
+            </div>
+          </DialogHeader>
+
+          {viewingPaymentDetails && (
+            <div className="space-y-4 py-2">
+              {/* Payment Summary */}
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-lg border bg-muted/30 text-xs">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Client</span>
+                  <span className="font-medium text-foreground">
+                    {viewingPaymentDetails.client_name}
+                  </span>
+                  {viewingPaymentDetails.client_code && (
+                    <span className="text-[10px] font-mono text-muted-foreground block">
+                      ({viewingPaymentDetails.client_code})
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Payment Received</span>
+                  <span className="font-mono font-bold text-sm text-foreground">
+                    {inr(viewingPaymentDetails.amount)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Payment Date</span>
+                  <span className="text-foreground">{fmtDate(viewingPaymentDetails.payment_date)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Payment Mode</span>
+                  <span className="capitalize text-foreground font-medium">
+                    {MODES[viewingPaymentDetails.mode as keyof typeof MODES] ?? viewingPaymentDetails.mode}
+                  </span>
+                </div>
+                {viewingPaymentDetails.narration && (
+                  <div className="col-span-2 pt-1 border-t border-border/50">
+                    <span className="text-muted-foreground block text-[11px]">Narration / Notes</span>
+                    <span className="text-foreground text-[11px] italic">
+                      {viewingPaymentDetails.narration}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Cleared Records Breakdown */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    Cleared Compliance Work ({viewingPaymentDetails.cleared_jobs?.length ?? 0})
+                  </span>
+                  <span className="text-xs font-mono font-bold text-emerald-600">
+                    Total Cleared: {inr(viewingPaymentDetails.allocated_amount)}
+                  </span>
+                </div>
+
+                {viewingPaymentDetails.cleared_jobs && viewingPaymentDetails.cleared_jobs.length > 0 ? (
+                  <div className="border rounded-lg divide-y bg-background max-h-56 overflow-y-auto">
+                    {viewingPaymentDetails.cleared_jobs.map((cj, i) => (
+                      <div key={i} className="p-2.5 flex items-center justify-between text-xs hover:bg-muted/30">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                            {cj.invoice_no ? (
+                              <Badge variant="outline" className="font-mono text-[10px] text-primary bg-primary/5 border-primary/20">
+                                {cj.invoice_no}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[9px] py-0 px-1 text-muted-foreground font-normal">
+                                Pre-invoice advance
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate max-w-[260px]">
+                            {cj.title}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold text-emerald-600">
+                            {inr(cj.allocated_amount)}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">Cleared</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border rounded-lg p-3 text-center text-xs text-muted-foreground bg-muted/20">
+                    No individual jobs cleared yet. Entire amount is currently held as unallocated credit balance.
+                  </div>
+                )}
+              </div>
+
+              {/* Credit Balance Card */}
+              <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 text-xs">
+                <div>
+                  <span className="text-[11px] text-muted-foreground block">Remaining Available Balance</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {viewingPaymentDetails.available_amount > 0.01
+                      ? "Available to allocate to other open jobs or expenses"
+                      : "✓ 100% of received funds have been cleared"}
+                  </span>
+                </div>
+                <div className="text-right font-mono font-bold text-sm">
+                  <span
+                    className={
+                      viewingPaymentDetails.available_amount > 0.01
+                        ? "text-emerald-600"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {inr(viewingPaymentDetails.available_amount)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            {viewingPaymentDetails && viewingPaymentDetails.available_amount > 0.01 && (
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                onClick={() => {
+                  const p = viewingPaymentDetails;
+                  setViewingPaymentDetails(null);
+                  handleOpenAllocation(p);
+                }}
+              >
+                Allocate Remaining Balance ({inr(viewingPaymentDetails.available_amount)})
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewingPaymentDetails(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

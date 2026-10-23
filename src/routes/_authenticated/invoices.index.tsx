@@ -2,11 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/app/DataTable";
-import { ClientSelect, NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
+import { ClientSelect, DateRangePicker, NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
@@ -108,32 +108,39 @@ function InvoicesPage() {
               className="w-48"
               allowClear
             />
-            <span className="text-xs text-muted-foreground">Date</span>
-            <Input
-              type="date"
-              value={fl.from}
-              onChange={(e) => setFl((p) => ({ ...p, from: e.target.value }))}
-              className="h-9 w-36"
+            <DateRangePicker
+              from={fl.from}
+              to={fl.to}
+              onFromChange={(val) => setFl((p) => ({ ...p, from: val }))}
+              onToChange={(val) => setFl((p) => ({ ...p, to: val }))}
+              label="Date"
             />
-            <span className="text-xs text-muted-foreground">to</span>
-            <Input
-              type="date"
-              value={fl.to}
-              onChange={(e) => setFl((p) => ({ ...p, to: e.target.value }))}
-              className="h-9 w-36"
-            />
+            {(fl.status || fl.client || fl.from || fl.to) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setFl({ status: "", client: "", from: "", to: "" })}
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                title="Reset all filters"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
+              </Button>
+            )}
           </>
         }
         columns={[
           {
             key: "n",
             header: "Invoice",
+            className: "min-w-[120px] whitespace-nowrap",
             sort: (i) => i.invoice_no,
             render: (i) => (
               <Link
                 to="/invoices/$id"
                 params={{ id: i.id }}
-                className="font-mono text-xs text-primary"
+                className="font-mono text-xs font-semibold text-primary whitespace-nowrap hover:underline"
               >
                 {i.invoice_no}
               </Link>

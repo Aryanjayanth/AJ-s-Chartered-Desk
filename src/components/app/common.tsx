@@ -389,7 +389,7 @@ export function ChecklistFilter({
       <PopoverContent className="w-56 p-2" align="start">
         <div className="flex items-center justify-between border-b pb-1.5 mb-1.5 px-1">
           <span className="text-xs font-semibold text-muted-foreground">
-            {filterLabel} Checklist
+            {filterLabel}
           </span>
           {selected.length > 0 && (
             <button
@@ -439,7 +439,7 @@ export function DateRangePicker({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 shrink-0 rounded-md border border-input bg-background px-2.5 h-9 text-xs shadow-xs focus-within:ring-2 focus-within:ring-ring focus-within:border-primary",
+        "inline-flex items-center gap-1 shrink-0 rounded-md border border-input bg-background px-2 h-9 text-xs shadow-xs focus-within:ring-2 focus-within:ring-ring focus-within:border-primary",
         className,
       )}
     >
@@ -449,7 +449,7 @@ export function DateRangePicker({
         type="date"
         value={from}
         onChange={(e) => onFromChange(e.target.value)}
-        className="bg-transparent text-xs outline-none focus:outline-none w-[110px] text-foreground cursor-pointer"
+        className="bg-transparent text-xs outline-none focus:outline-none w-[84px] sm:w-[88px] text-foreground cursor-pointer"
         title="From date"
       />
       <span className="text-muted-foreground text-[10px]">—</span>
@@ -457,7 +457,7 @@ export function DateRangePicker({
         type="date"
         value={to}
         onChange={(e) => onToChange(e.target.value)}
-        className="bg-transparent text-xs outline-none focus:outline-none w-[110px] text-foreground cursor-pointer"
+        className="bg-transparent text-xs outline-none focus:outline-none w-[84px] sm:w-[88px] text-foreground cursor-pointer"
         title="To date"
       />
       {hasValue && (

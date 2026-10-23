@@ -434,6 +434,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
       // Create 1 job per service ("1 service go to one job")
       const createdJobs: { id: string; fee: number; job_code: string; title: string }[] = [];
+      const submissionBatchId = itemConfigs.length > 1
+        ? `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+        : `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      let sharedJobCode: string | null = null;
 
       for (const config of itemConfigs) {
         const { item, svc, csId, periodStart, periodEnd, dueDate } = config;
@@ -464,6 +468,11 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           saveCustomCompany(effectiveCompanyName);
         }
         let jobNotes = generalNotes.trim() || null;
+        if (submissionBatchId) {
+          jobNotes = jobNotes
+            ? `[Batch: ${submissionBatchId}]\n${jobNotes}`
+            : `[Batch: ${submissionBatchId}]`;
+        }
         if (effectiveCompanyName && effectiveCompanyName !== currentFirm?.name) {
           jobNotes = jobNotes
             ? `[Company: ${effectiveCompanyName}]\n${jobNotes}`
@@ -474,6 +483,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           client_id: clientId,
           service_id: item.service_id,
           client_service_id: csId,
+          batch_id: submissionBatchId,
+          ...(sharedJobCode ? { job_code: sharedJobCode } : {}),
           title: jobTitle,
           fee: fee,
           discount: Math.min(ded, fee),
@@ -509,6 +520,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 notes: jobNotes,
                 due_date: dueDate || null,
                 auto_invoice: autoInvoice,
+                batch_id: submissionBatchId,
+                ...(sharedJobCode ? { job_code: sharedJobCode } : {}),
               })
               .eq("id", existingJob.id)
               .select("id, fee, job_code")
@@ -516,6 +529,9 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
             if (updateErr) throw updateErr;
             currentJob = updatedJob ?? existingJob;
+            if (!sharedJobCode && currentJob?.job_code) {
+              sharedJobCode = currentJob.job_code;
+            }
           }
         }
 
@@ -528,22 +544,27 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
           if (insertError) throw insertError;
           currentJob = inserted;
+          if (!sharedJobCode && currentJob?.job_code) {
+            sharedJobCode = currentJob.job_code;
+          }
         }
 
         // Save clearing record and record advance payment if entered
         if (currentJob && (adv > 0 || ded > 0)) {
-          try {
-            await supabase.rpc("save_job_clearing", {
-              _job_id: currentJob.id,
-              _advance: adv,
-              _tds_tcs: 0,
-              _discount: ded,
-              _other_deduction: 0,
-              _other_addition: 0,
-              _notes: "Initial advance/deductions on job creation",
-            });
-          } catch (clearingErr) {
-            console.warn("Could not save initial clearing for job", currentJob.id, clearingErr);
+          if (ded > 0) {
+            try {
+              await supabase.rpc("save_job_clearing", {
+                _job_id: currentJob.id,
+                _advance: 0,
+                _tds_tcs: 0,
+                _discount: ded,
+                _other_deduction: 0,
+                _other_addition: 0,
+                _notes: "Initial deductions on job creation",
+              });
+            } catch (clearingErr) {
+              console.warn("Could not save initial clearing for job", currentJob.id, clearingErr);
+            }
           }
 
           // If advance was entered, record an actual payment receipt and auto-allocate it to this job!
@@ -1244,20 +1265,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               />
             </Field>
 
-            <div className="flex items-center gap-2.5 rounded-lg border p-3 bg-muted/20">
-              <input
-                type="checkbox"
-                id="batch_auto_invoice"
-                checked={autoInvoice}
-                onChange={(e) => setAutoInvoice(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-              />
-              <label
-                htmlFor="batch_auto_invoice"
-                className="text-xs font-medium cursor-pointer select-none"
-              >
-                Automatically raise invoice when these jobs are marked Completed
-              </label>
+            <div className="rounded-lg border p-3 bg-muted/20 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are generated automatically when client payments are allocated to tasks.
             </div>
           </div>
         </section>

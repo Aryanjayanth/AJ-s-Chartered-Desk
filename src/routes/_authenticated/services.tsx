@@ -103,10 +103,7 @@ function ServicesPage() {
         TYPE_OPTIONS,
         data.map((s) => s.service_type),
       ),
-      freq: merge(
-        FREQ_OPTIONS,
-        data.map((s) => s.frequency),
-      ),
+      freq: FREQ_OPTIONS,
     };
   }, [q.data]);
 
@@ -161,7 +158,6 @@ function ServicesPage() {
           "Billing Type": s.billing_type === "recurring" ? "Recurring" : "One-time",
           Frequency:
             s.frequency === "one_time" ? "One-time" : (FREQ_LABEL[s.frequency] ?? s.frequency),
-          "Auto-Invoice": s.auto_invoice ? "Yes" : "No",
           Status: s.active ? "Active" : "Inactive",
           "Scope of Work": s.description ?? "",
           "Created Date": fmtDate(s.created_at),
@@ -199,17 +195,6 @@ function ServicesPage() {
               s.frequency === "one_time" ? "—" : (FREQ_LABEL[s.frequency] ?? s.frequency),
           },
           { key: "d", header: "Scope", render: (s) => (s.description ? "Yes" : "—") },
-          {
-            key: "ai",
-            header: "Auto-Invoice",
-            render: (s) => (
-              <span
-                className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${s.auto_invoice ? "bg-sky-500/10 text-sky-600 dark:text-sky-400" : "text-muted-foreground"}`}
-              >
-                {s.auto_invoice ? "Yes" : "No"}
-              </span>
-            ),
-          },
           {
             key: "a",
             header: "Status",
@@ -320,7 +305,6 @@ function ServiceForm({
   // Remembered so flipping the toggle off and on again restores the choice.
   const [lastRecurringFreq, setLastRecurringFreq] = useState(freq);
   const [description, setDescription] = useState(svc?.description ?? "");
-  const [autoInvoice, setAutoInvoice] = useState(svc?.auto_invoice ?? false);
   const [active, setActive] = useState(svc?.active ?? true);
   const [busy, setBusy] = useState(false);
 
@@ -365,7 +349,7 @@ function ServiceForm({
       description: description.trim() || null,
       billing_type: recurring ? "recurring" : "one_time",
       frequency: recurring ? freq : "one_time",
-      auto_invoice: autoInvoice,
+      auto_invoice: false,
       active,
       ...(firmId ? { firm_id: firmId } : {}),
     };
@@ -482,13 +466,6 @@ function ServiceForm({
       </Section>
 
       <Section title="Behaviour">
-        <Switch
-          id="svc-autoinvoice"
-          label="Auto-Invoice on completion"
-          hint="Raise an invoice automatically when jobs for this service are marked Completed."
-          checked={autoInvoice}
-          onChange={setAutoInvoice}
-        />
         <Switch
           id="svc-active"
           label="Active"

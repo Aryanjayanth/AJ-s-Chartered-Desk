@@ -80,6 +80,7 @@ const groups: { label: string; items: Item[]; open?: boolean }[] = [
   },
   {
     label: "Receivables & Reports",
+    open: true,
     items: [
       { title: "Outstanding", url: "/outstanding", icon: AlertTriangle, roles: M },
       { title: "Ageing", url: "/ageing", icon: CalendarClock, roles: M },
@@ -88,6 +89,7 @@ const groups: { label: string; items: Item[]; open?: boolean }[] = [
   },
   {
     label: "Administration",
+    open: true,
     items: [
       { title: "Users", url: "/users", icon: UserCog, roles: M },
       { title: "Roles & Permissions", url: "/roles", icon: ShieldCheck, roles: M },
@@ -123,11 +125,11 @@ export function AppSidebar() {
           to={isPlatformMode ? "/admin" : "/dashboard"}
           className="flex items-center gap-2.5 rounded-md p-1 transition-colors hover:bg-sidebar-accent/50 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md overflow-hidden bg-primary/5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center">
             {!isPlatformMode && firm?.logo_url ? (
               <img src={firm.logo_url} alt={firm.name} className="h-full w-full object-contain" />
             ) : (
-              <img src="/logo.png" alt="AJ's Chartered Desk" className="h-6 w-6 object-contain" />
+              <img src="/logo.png" alt="AJ's Chartered Desk" className="h-8 w-8 object-contain mix-blend-screen" />
             )}
           </div>
           {!collapsed && (

@@ -26,6 +26,8 @@ const map: Record<string, keyof typeof tone> = {
   invoiced: "info",
   in_progress: "info",
   unpaid: "info",
+  unbilled: "warning",
+  unreimbursed: "warning",
   open: "muted",
   draft: "muted",
   overdue: "danger",

@@ -10,6 +10,9 @@ import {
   PlusCircle,
   History,
   ArrowRight,
+  Clock,
+  Download,
+  RotateCcw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/app/DataTable";
 import {
   ClientSelect,
+  DateRangePicker,
   Field,
   NativeSelect,
   PageHeader,
@@ -28,7 +32,7 @@ import { useClientLookup } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
 import { recordPaymentEntry } from "@/lib/firms.functions";
 import { readList } from "@/lib/supabase-read";
-import { downloadCsv, errMsg, fmtDate, inr, MODES, today } from "@/lib/format";
+import { downloadCsv, errMsg, fmtDate, fmtDateTime, inr, MODES, today } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/payments")({
@@ -65,6 +69,7 @@ function PaymentsPage() {
     client: "",
     mode: "",
     status: "",
+    dateBasis: "received",
     from: "",
     to: "",
   });
@@ -208,6 +213,10 @@ function PaymentsPage() {
             <Wallet className="h-4 w-4 text-primary" />
             <CardTitle className="text-sm font-semibold">Record a Payment</CardTitle>
           </div>
+          <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 text-primary" />
+            Entry time: {fmtDateTime(new Date().toISOString())}
+          </div>
           {!compact && (
             <Button
               type="button"
@@ -277,7 +286,7 @@ function PaymentsPage() {
               />
             </Field>
 
-            <Field label="Date *">
+            <Field label="Date Received *">
               <Input
                 type="date"
                 max={today()}
@@ -318,8 +327,12 @@ function PaymentsPage() {
       if (payFilters.client && p.client_id !== payFilters.client) return false;
       if (payFilters.mode && p.mode !== payFilters.mode) return false;
       if (payFilters.status && p.status !== payFilters.status) return false;
-      if (payFilters.from && (!p.payment_date || p.payment_date < payFilters.from)) return false;
-      if (payFilters.to && (!p.payment_date || p.payment_date > payFilters.to)) return false;
+      const basisDate =
+        payFilters.dateBasis === "entered"
+          ? (p.created_at ? p.created_at.slice(0, 10) : null)
+          : p.payment_date;
+      if (payFilters.from && (!basisDate || basisDate < payFilters.from)) return false;
+      if (payFilters.to && (!basisDate || basisDate > payFilters.to)) return false;
       return true;
     });
 
@@ -331,36 +344,65 @@ function PaymentsPage() {
               Total active receipts:{" "}
               <strong className="text-foreground">{activePayments.length}</strong>
             </div>
-            <Button
-              size="sm"
-              onClick={() => setView("entry")}
-              className="h-8 text-xs gap-1.5 font-medium cursor-pointer"
-            >
-              <PlusCircle className="h-3.5 w-3.5" />
-              Record a Payment
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs gap-1.5 font-medium cursor-pointer"
+                onClick={() => {
+                  const dataToExport = filteredPayments.map((p) => ({
+                    "Receipt Code": p.payment_code,
+                    Client: cname(p.client_id),
+                    Job: jcode(p.job_id) ?? "Client Balance",
+                    "Received Date": fmtDate(p.payment_date),
+                    "Entered Date": fmtDate(p.created_at),
+                    Mode: MODES[p.mode] ?? p.mode,
+                    Amount: canSeeAmounts("payments") && p.amount != null ? p.amount : "-",
+                    Status: p.status,
+                    Notes: p.narration ?? "",
+                  }));
+                  const stamp = new Date().toISOString().slice(0, 10);
+                  downloadCsv(`payments_${stamp}.csv`, dataToExport);
+                }}
+                disabled={!filteredPayments.length}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setView("entry")}
+                className="h-8 text-xs gap-1.5 font-medium cursor-pointer"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                Record a Payment
+              </Button>
+            </div>
           </div>
         )}
         <DataTable
           rows={filteredPayments}
           loading={payQuery.isLoading}
           onRowClick={(p) => {
-            if (p.job_id) {
-              navigate({ to: "/clearing", search: { client: p.client_id } });
-            } else {
-              navigate({ to: "/clients/$id", params: { id: p.client_id } });
-            }
+            navigate({
+              to: "/clearing",
+              search: {
+                client: p.client_id,
+                payment: p.id,
+                job: p.job_id || undefined,
+              },
+            });
           }}
           empty="No payments match these filters."
           search={(p) =>
             `${p.payment_code} ${cname(p.client_id)} ${jcode(p.job_id) ?? "Client Balance"}`
           }
-          exportFilename="payments"
           exportTransform={(p) => ({
             "Receipt Code": p.payment_code,
             Client: cname(p.client_id),
             Job: jcode(p.job_id) ?? "Client Balance",
-            Date: fmtDate(p.payment_date),
+            "Received Date": fmtDate(p.payment_date),
+            "Entered Date": fmtDate(p.created_at),
             Mode: MODES[p.mode] ?? p.mode,
             Amount: canSeeAmounts("payments") && p.amount != null ? p.amount : "—",
             Status: p.status,
@@ -368,13 +410,6 @@ function PaymentsPage() {
           })}
           toolbar={
             <>
-              <ClientSelect
-                value={payFilters.client}
-                onChange={(id) => setPayFilters((p) => ({ ...p, client: id }))}
-                placeholder="All clients"
-                className="w-44"
-                allowClear
-              />
               <NativeSelect
                 value={payFilters.mode}
                 onChange={(e) => setPayFilters((p) => ({ ...p, mode: e.target.value }))}
@@ -396,20 +431,42 @@ function PaymentsPage() {
                 <option value="active">Active</option>
                 <option value="reversed">Reversed</option>
               </NativeSelect>
-              <span className="text-xs text-muted-foreground">Date</span>
-              <Input
-                type="date"
-                value={payFilters.from}
-                onChange={(e) => setPayFilters((p) => ({ ...p, from: e.target.value }))}
-                className="h-9 w-36"
+              <NativeSelect
+                value={payFilters.dateBasis}
+                onChange={(e) => setPayFilters((p) => ({ ...p, dateBasis: e.target.value }))}
+                className="w-40"
+              >
+                <option value="received">By Received date</option>
+                <option value="entered">By Entered date</option>
+              </NativeSelect>
+              <DateRangePicker
+                from={payFilters.from}
+                to={payFilters.to}
+                onFromChange={(val) => setPayFilters((p) => ({ ...p, from: val }))}
+                onToChange={(val) => setPayFilters((p) => ({ ...p, to: val }))}
+                label="Date"
               />
-              <span className="text-xs text-muted-foreground">to</span>
-              <Input
-                type="date"
-                value={payFilters.to}
-                onChange={(e) => setPayFilters((p) => ({ ...p, to: e.target.value }))}
-                className="h-9 w-36"
-              />
+              {(payFilters.mode || payFilters.status || payFilters.from || payFilters.to) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setPayFilters((p) => ({
+                      ...p,
+                      mode: "",
+                      status: "",
+                      from: "",
+                      to: "",
+                    }))
+                  }
+                  className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                  title="Reset all filters"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reset
+                </Button>
+              )}
             </>
           }
           columns={[
@@ -442,9 +499,19 @@ function PaymentsPage() {
             },
             {
               key: "d",
-              header: "Date",
+              header: "Received",
               sort: (p) => p.payment_date,
               render: (p) => fmtDate(p.payment_date),
+            },
+            {
+              key: "entered",
+              header: "Entered",
+              sort: (p) => p.created_at ?? "",
+              render: (p) => (
+                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                  {fmtDate(p.created_at)}
+                </span>
+              ),
             },
             {
               key: "mode",

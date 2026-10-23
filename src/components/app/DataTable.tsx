@@ -9,6 +9,7 @@ import {
   CheckSquare,
   Square,
   MinusSquare,
+  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ export interface DataTableProps<T extends { id: string | number }> {
   rows: T[] | undefined;
   columns: Column<T>[];
   search?: (row: T) => string;
+  searchPlaceholder?: string;
   loading?: boolean;
   empty?: string;
   toolbar?: ReactNode;
@@ -41,12 +43,15 @@ export interface DataTableProps<T extends { id: string | number }> {
   selectedIds?: (string | number)[];
   onSelectionChange?: (selectedIds: (string | number)[]) => void;
   bulkActions?: (selectedRows: T[], clearSelection: () => void) => ReactNode;
+  defaultSortKey?: string;
+  defaultSortDir?: 1 | -1;
 }
 
 export function DataTable<T extends { id: string | number }>({
   rows,
   columns,
   search,
+  searchPlaceholder,
   loading,
   empty = "No records found",
   toolbar,
@@ -59,10 +64,12 @@ export function DataTable<T extends { id: string | number }>({
   selectedIds: controlledSelectedIds,
   onSelectionChange,
   bulkActions,
+  defaultSortKey,
+  defaultSortDir = 1,
 }: DataTableProps<T>) {
   const [q, setQ] = useState("");
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [dir, setDir] = useState<1 | -1>(1);
+  const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
+  const [dir, setDir] = useState<1 | -1>(defaultSortDir);
   const [page, setPage] = useState(0);
   const [internalSelectedIds, setInternalSelectedIds] = useState<(string | number)[]>([]);
 
@@ -85,7 +92,14 @@ export function DataTable<T extends { id: string | number }>({
     const col = columns.find((c) => c.key === sortKey);
     if (col?.sort) {
       const f = col.sort;
-      r = [...r].sort((a, b) => (f(a) > f(b) ? dir : f(a) < f(b) ? -dir : 0));
+      r = [...r].sort((a, b) => {
+        const va = f(a);
+        const vb = f(b);
+        if (typeof va === "string" && typeof vb === "string") {
+          return va.localeCompare(vb, undefined, { numeric: true }) * dir;
+        }
+        return (va > vb ? dir : va < vb ? -dir : 0);
+      });
     }
     return r;
   }, [rows, q, search, sortKey, dir, columns]);
@@ -179,9 +193,9 @@ export function DataTable<T extends { id: string | number }>({
         </div>
       ) : (
         (search || toolbar || exportFilename) && (
-          <div className="flex flex-wrap items-center gap-2 border-b p-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 border-b p-2.5 sm:p-3">
             {search && (
-              <div className="relative w-full sm:w-48 lg:w-56 shrink-0">
+              <div className="relative w-full sm:w-44 md:w-48 lg:w-52 shrink-0">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={q}
@@ -189,39 +203,54 @@ export function DataTable<T extends { id: string | number }>({
                     setQ(e.target.value);
                     setPage(0);
                   }}
-                  placeholder="Search…"
-                  className="pl-8 h-9"
+                  placeholder={searchPlaceholder ?? "Search…"}
+                  className="pl-8 pr-8 h-9 text-xs"
                 />
+                {q && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQ("");
+                      setPage(0);
+                    }}
+                    className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                    title="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             )}
             {toolbar}
             {exportFilename && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 ml-auto text-xs gap-1.5 font-medium shrink-0"
-                onClick={() => {
-                  const dataToExport = exportTransform
-                    ? filtered.map(exportTransform)
-                    : filtered.map((r) => {
-                        const out: Record<string, unknown> = {};
-                        for (const col of columns) {
-                          if (!col.header || col.key === "x" || col.key === "actions") continue;
-                          const val = (r as Record<string, unknown>)[col.key];
-                          out[col.header] = val ?? "";
-                        }
-                        return out;
-                      });
-                  const stamp = new Date().toISOString().slice(0, 10);
-                  downloadCsv(`${exportFilename}_${stamp}.csv`, dataToExport);
-                }}
-                disabled={!filtered.length}
-                title="Export current filtered data to CSV"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Export CSV
-              </Button>
+              <div className="ml-auto flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs gap-1.5 font-medium shrink-0"
+                  onClick={() => {
+                    const dataToExport = exportTransform
+                      ? filtered.map(exportTransform)
+                      : filtered.map((r) => {
+                          const out: Record<string, unknown> = {};
+                          for (const col of columns) {
+                            if (!col.header || col.key === "x" || col.key === "actions") continue;
+                            const val = (r as Record<string, unknown>)[col.key];
+                            out[col.header] = val ?? "";
+                          }
+                          return out;
+                        });
+                    const stamp = new Date().toISOString().slice(0, 10);
+                    downloadCsv(`${exportFilename}_${stamp}.csv`, dataToExport);
+                  }}
+                  disabled={!filtered.length}
+                  title="Export current filtered data to CSV"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export CSV
+                </Button>
+              </div>
             )}
           </div>
         )

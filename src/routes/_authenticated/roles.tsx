@@ -82,10 +82,14 @@ function RolesPage() {
     const current = matrix.data?.[role]?.[module];
     if (!current) return;
     const next: Grants = { ...current, [key]: !current[key] };
+    // Update only changes status, so it implies Edit access to the record.
+    if (key === "update" && next.update) {
+      next.edit = true;
+    }
     // Nothing else is reachable without View, so turn the rest off with it
     // rather than storing a row that contradicts itself.
     if (key === "view" && !next.view) {
-      next.create = next.edit = next.delete = next.amounts = false;
+      next.create = next.edit = next.update = next.delete = next.amounts = false;
     }
 
     const id = `${role}:${module}`;
@@ -141,12 +145,18 @@ function RolesPage() {
               <th className="w-40 px-3 py-3 text-center">Admin</th>
             </tr>
           </thead>
-          {MODULES.map((module) => (
+          {MODULES.flatMap((m) => {
+            const rows = [{ key: m, label: MODULE_LABEL[m], blurb: MODULE_BLURB[m], tasks: false }];
+            if (m === "jobs") {
+              rows.push({ key: "jobs" as Module, label: "Tasks", blurb: "Task list, expanded job items and status updates. Shares the Jobs permission.", tasks: true });
+            }
+            return rows;
+          }).map(({ key: module, label, blurb, tasks }) => (
             <tbody key={module} className="border-t">
               <tr>
                 <td className="px-4 py-2">
-                  <div className="font-medium">{MODULE_LABEL[module]}</div>
-                  <div className="text-xs text-muted-foreground">{MODULE_BLURB[module]}</div>
+                  <div className="font-medium">{label}</div>
+                  <div className="text-xs text-muted-foreground">{blurb}</div>
                 </td>
                 {EDITABLE_ROLES.map((role) => {
                   const g = matrix.data?.[role]?.[module];
@@ -154,7 +164,7 @@ function RolesPage() {
                   return (
                     <td key={role} className="align-top">
                       <div className={cn("grid grid-cols-2 gap-1 px-2 py-2", busy && "opacity-60")}>
-                        {ACTIONS.map((a) => {
+                        {ACTIONS.filter((a) => a !== "update" || tasks).map((a) => {
                           const on = !!g?.[a];
                           const locked = a === "delete" && DELETE_LOCKED[module];
                           const dead = a !== "view" && !g?.view;
@@ -164,14 +174,14 @@ function RolesPage() {
                               type="button"
                               disabled={locked || dead}
                               aria-pressed={on}
-                              aria-label={`${role} ${MODULE_LABEL[module]}: ${ACTION_LABEL[a]}`}
+                              aria-label={`${role} ${label}: ${ACTION_LABEL[a]}`}
                               onClick={() => toggle(role, module, a)}
                               title={
                                 locked
                                   ? "Payment records are reversed, never deleted."
                                   : dead
                                     ? "Turn on View first."
-                                    : `${on ? "Revoke" : "Grant"} ${ACTION_LABEL[a].toLowerCase()} on ${MODULE_LABEL[module]} for ${role}`
+                                    : `${on ? "Revoke" : "Grant"} ${ACTION_LABEL[a].toLowerCase()} on ${label} for ${role}`
                               }
                               className={cn(
                                 "flex h-8 items-center justify-center gap-1 rounded-md border text-[11px] font-medium transition-colors",
@@ -199,7 +209,7 @@ function RolesPage() {
                 })}
                 <td className="align-top">
                   <div className="grid grid-cols-2 gap-1 px-2 py-2">
-                    {ACTIONS.map((a) => {
+                    {ACTIONS.filter((a) => a !== "update" || tasks).map((a) => {
                       const locked = a === "delete" && DELETE_LOCKED[module];
                       return (
                         <span

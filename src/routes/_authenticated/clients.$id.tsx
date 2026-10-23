@@ -129,20 +129,25 @@ function ClientProfile() {
               "id,job_code,client_id,service_id,title,period_start,period_end,fee,discount,net_amount,due_date,assigned_staff,status,financial_status,notes,auto_invoice,created_at,services(name),profiles!jobs_assigned_staff_fkey(full_name),invoice_items(invoice_id,invoices(id,invoice_no,status))",
             )
             .eq("client_id", id)
-            .order("created_at", { ascending: false });
+            .order("job_code", { ascending: true });
           if (r.error) return { data: null, error: r.error };
           return {
             data: (r.data ?? []).map((j) => {
-              const inv = (
-                j.invoice_items as Array<{
-                  invoice_id: string;
-                  invoices: { id: string; invoice_no: string; status: string } | null;
-                }> | null
-              )?.[0]?.invoices;
+              const invsMap = new Map<string, { id: string; invoice_no: string; status: string }>();
+              if (Array.isArray(j.invoice_items)) {
+                for (const item of j.invoice_items as any[]) {
+                  if (item?.invoices?.id) {
+                    invsMap.set(item.invoices.id, item.invoices);
+                  }
+                }
+              }
+              const connectedInvs = Array.from(invsMap.values());
+              const inv = connectedInvs[0] ?? null;
               return {
                 ...j,
                 service_name: j.services?.name ?? null,
                 assigned_staff_name: j.profiles?.full_name ?? null,
+                invoices: connectedInvs,
                 invoice_id: inv?.id ?? null,
                 invoice_no: inv?.invoice_no ?? null,
                 invoice_status: inv?.status ?? null,
@@ -506,16 +511,20 @@ function ClientProfile() {
           <DataTable
             rows={d.jobs}
             empty="No jobs for this client."
+            defaultSortKey="job_code"
+            defaultSortDir={1}
             search={(j) => `${j.job_code} ${j.title}`}
             columns={[
               {
                 key: "job_code",
                 header: "Job",
+                className: "whitespace-nowrap min-w-[110px]",
+                sort: (j) => j.job_code,
                 render: (j) => (
                   <Link
                     to="/jobs/$id"
                     params={{ id: j.id }}
-                    className="font-mono text-xs text-primary hover:underline"
+                    className="font-mono text-xs font-semibold text-primary hover:underline whitespace-nowrap"
                   >
                     {j.job_code}
                   </Link>
@@ -552,27 +561,36 @@ function ClientProfile() {
               {
                 key: "fs",
                 header: "Billing",
+                className: "whitespace-nowrap min-w-[130px]",
                 render: (j) => {
-                  if (j.invoice_id && j.invoice_no) {
+                  const invList = (j as any).invoices as Array<{ id: string; invoice_no: string; status: string }> | undefined;
+                  if (invList && invList.length > 0) {
                     return (
-                      <Link
-                        to="/invoices/$id"
-                        params={{ id: j.invoice_id }}
-                        className="group inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium bg-muted/60 hover:bg-muted border border-border/50 transition-colors"
-                        title={`Click to open Invoice ${j.invoice_no}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <StatusBadge
-                          status={
-                            j.financial_status === "closed"
-                              ? "paid"
-                              : j.invoice_status || "invoiced"
-                          }
-                        />
-                        <span className="font-mono text-[11px] text-primary underline underline-offset-2 group-hover:text-primary/80">
-                          {j.invoice_no}
-                        </span>
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {invList.map((inv) => (
+                          <Link
+                            key={inv.id}
+                            to="/invoices/$id"
+                            params={{ id: inv.id }}
+                            className="group inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium bg-muted/60 hover:bg-muted border border-border/50 transition-colors whitespace-nowrap"
+                            title={`Click to open Invoice ${inv.invoice_no}`}
+                          >
+                            <StatusBadge
+                              status={
+                                j.financial_status === "closed"
+                                  ? "paid"
+                                  : inv.status || "invoiced"
+                              }
+                            />
+                            <span className="font-mono text-[11px] text-primary underline underline-offset-2 group-hover:text-primary/80 whitespace-nowrap">
+                              {inv.invoice_no}
+                            </span>
+                          </Link>
+                        ))}
+                        {j.financial_status !== "closed" && (
+                          <StatusBadge status={j.financial_status} />
+                        )}
+                      </div>
                     );
                   }
                   return (
@@ -929,20 +947,8 @@ function LinkServiceDialog({
               ))}
             </NativeSelect>
           </Field>
-          <div className="sm:col-span-2 flex items-center gap-2 rounded-md border p-2.5 bg-muted/20">
-            <input
-              type="checkbox"
-              id="dialog_link_service_auto_invoice"
-              checked={f.auto_invoice}
-              onChange={(e) => setF((p) => ({ ...p, auto_invoice: e.target.checked }))}
-              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <label
-              htmlFor="dialog_link_service_auto_invoice"
-              className="text-xs font-medium cursor-pointer"
-            >
-              Automatically raise invoice when recurring jobs for this service are marked Completed
-            </label>
+          <div className="sm:col-span-2 rounded-md border p-2.5 bg-muted/20 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are generated upon recording or clearing client payment against tasks.
           </div>
           <Field label="Notes" className="sm:col-span-2">
             <Input value={f.notes} onChange={set("notes")} />

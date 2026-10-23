@@ -67,7 +67,13 @@ const Empty = () => (
   </div>
 );
 
-function PieBox({ data }: { data: { name: string; value: number }[] }) {
+function PieBox({
+  data,
+  isCurrency = false,
+}: {
+  data: { name: string; value: number }[];
+  isCurrency?: boolean;
+}) {
   const d = data.filter((x) => x.value > 0);
   if (!d.length) return <Empty />;
   return (
@@ -85,7 +91,7 @@ function PieBox({ data }: { data: { name: string; value: number }[] }) {
             <Cell key={i} fill={COLORS[i % COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(v: number) => v.toLocaleString("en-IN")} />
+        <Tooltip formatter={(v: number) => (isCurrency ? inr(v) : v.toLocaleString("en-IN"))} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
       </PieChart>
     </ResponsiveContainer>
@@ -98,12 +104,19 @@ export function ReportCharts({ data }: { data: ChartData }) {
 
   const months = new Map<string, { month: string; Invoiced: number; Collected: number }>();
   const m = (dt: string | null | undefined) => {
-    const k = (dt ?? "").slice(0, 7);
+    if (!dt || dt.length < 7) return null;
+    const k = dt.slice(0, 7);
     if (!months.has(k)) months.set(k, { month: k, Invoiced: 0, Collected: 0 });
     return months.get(k)!;
   };
-  live.forEach((i) => (m(i.invoice_date).Invoiced += Number(i.total)));
-  pays.forEach((p) => (m(p.payment_date).Collected += Number(p.amount)));
+  live.forEach((i) => {
+    const entry = m(i.invoice_date);
+    if (entry) entry.Invoiced += Number(i.total || 0);
+  });
+  pays.forEach((p) => {
+    const entry = m(p.payment_date);
+    if (entry) entry.Collected += Number(p.amount || 0);
+  });
   const trend = [...months.values()]
     .sort((a, b) => a.month.localeCompare(b.month))
     .slice(-12)
@@ -157,11 +170,13 @@ export function ReportCharts({ data }: { data: ChartData }) {
     value: data.b.filter((b) => b.status === s).length,
   }));
   const short = (v: number) =>
-    v >= 100000
-      ? `₹${(v / 100000).toFixed(1)}L`
-      : v >= 1000
-        ? `₹${(v / 1000).toFixed(0)}k`
-        : `₹${v}`;
+    v >= 10000000
+      ? `₹${(v / 10000000).toFixed(1)}Cr`
+      : v >= 100000
+        ? `₹${(v / 100000).toFixed(1)}L`
+        : v >= 1000
+          ? `₹${(v / 1000).toFixed(0)}k`
+          : `₹${v}`;
 
   return (
     <div className="no-print mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -185,10 +200,10 @@ export function ReportCharts({ data }: { data: ChartData }) {
         </Card>
       </div>
       <Card title="Collections by payment mode (₹)">
-        <PieBox data={modes} />
+        <PieBox data={modes} isCurrency={true} />
       </Card>
       <Card title="Outstanding by ageing (₹)">
-        <PieBox data={ageing} />
+        <PieBox data={ageing} isCurrency={true} />
       </Card>
       <Card title="Invoice status (count)">
         <PieBox data={invStatus} />

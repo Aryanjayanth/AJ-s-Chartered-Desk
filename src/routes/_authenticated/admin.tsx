@@ -75,7 +75,30 @@ function AdminPage() {
   });
 
   if (loading) return null;
-  if (!isSuperAdmin) return <NoAccess />;
+  if (!isSuperAdmin) {
+    return (
+      <div className="mx-auto max-w-xl py-16 text-center space-y-4">
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mb-1">
+          <ShieldAlert className="h-7 w-7" />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight">Platform Super Admin Console</h2>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          The Firms Console is reserved for multi-firm Platform Super Administrators. To configure your firm's profile, GSTIN, PAN, bank accounts, and legal entities, please use <strong>Firm Settings</strong>.
+        </p>
+        <div className="flex items-center justify-center gap-3 pt-3">
+          <Button asChild>
+            <Link to="/settings">
+              Open Firm Settings
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/dashboard">Back to Dashboard</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const firms = (q.data ?? []).filter((f) =>
     `${f.name} ${f.owner_email} ${f.city}`.toLowerCase().includes(term.toLowerCase()),
