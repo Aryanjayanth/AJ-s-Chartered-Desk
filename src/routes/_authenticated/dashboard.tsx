@@ -273,7 +273,7 @@ function Dashboard() {
       />
 
       {/* KPI Stat Cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3">
         <StatCard label="Total Clients" value={d?.clients.length ?? "—"} />
         <StatCard
           label="Active Clients"
@@ -283,19 +283,12 @@ function Dashboard() {
         <StatCard label="Jobs in Period" value={jobs.length} />
         <StatCard label="Pending Jobs" value={js("pending") + js("in_progress")} tone="warning" />
         <StatCard label="Completed Jobs" value={js("completed")} tone="success" />
-        <StatCard label="Overdue Jobs" value={js("overdue")} tone="danger" />
-        <StatCard
-          label="Overdue Invoices"
-          value={openInv.filter((x) => invoiceDisplayStatus(x) === "overdue").length}
-          tone="danger"
-        />
         <StatCard label="Total Invoiced" value={inr(totalInvoiced)} tone="info" />
         <StatCard label="Total Collected" value={inr(collected)} tone="success" />
         <StatCard
           label="Outstanding Receivables"
           value={inr(outstanding)}
           tone="danger"
-          hint={`${openInv.filter((x) => invoiceDisplayStatus(x) === "overdue").length} overdue in period`}
         />
         <StatCard label="Unallocated Payments" value={inr(unalloc)} tone="warning" />
       </div>
