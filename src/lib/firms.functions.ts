@@ -1035,10 +1035,47 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
 
       const curFee = Number(job.fee || 0);
       const curJobNet = Number(job.net_amount || curFee);
-      // If invoice exists, remaining base due is the invoice's outstanding
+
+      // Resolve prior advance & deductions if no invoice exists yet
+      let priorAdvTotal = 0;
+      let priorDedTotal = 0;
+      if (!existingInv) {
+        const { data: directPays } = await supabaseAdmin
+          .from("payments")
+          .select("amount")
+          .eq("job_id", job.id)
+          .neq("id", pay.id)
+          .neq("status", "reversed");
+        const directAdv = (directPays ?? []).reduce(
+          (sum: number, p: any) => sum + Number(p.amount || 0),
+          0,
+        );
+
+        const { data: jc } = await supabaseAdmin
+          .from("job_clearing")
+          .select("advance, tds_tcs, other_deduction, discount")
+          .eq("job_id", job.id)
+          .maybeSingle();
+
+        priorAdvTotal = Math.max(Number(jc?.advance || 0), directAdv);
+        const rawClearingDisc = Number(jc?.discount || 0);
+        const jobDisc = Number(job.discount || 0);
+        const additionalClearingDisc =
+          rawClearingDisc > jobDisc
+            ? rawClearingDisc - jobDisc
+            : rawClearingDisc === jobDisc
+              ? 0
+              : rawClearingDisc;
+        priorDedTotal =
+          Number(jc?.tds_tcs || 0) +
+          Number(jc?.other_deduction || 0) +
+          additionalClearingDisc;
+      }
+
+      // If invoice exists, remaining base due is the invoice's outstanding; otherwise subtract prior advance and deductions
       const curBaseDue = existingInv
         ? Math.max(0, Number(existingInv.total || 0) - Number(existingInv.amount_paid || 0))
-        : curJobNet;
+        : Math.max(0, curJobNet - priorAdvTotal - priorDedTotal);
 
       const maxJobDue = Math.max(0, curBaseDue - jDisc);
       if (jAmt > maxJobDue + 0.01) {
@@ -1147,6 +1184,37 @@ export const manualAllocatePayment = createServerFn({ method: "POST" })
         });
 
         await supabaseAdmin.from("jobs").update({ financial_status: "invoiced" }).eq("id", job.id);
+
+        // If this job had prior advance payments, allocate them to this new invoice too so the invoice properly reflects all payments
+        const { data: priorJobPayments } = await supabaseAdmin
+          .from("payments")
+          .select("id, amount, allocated_amount")
+          .eq("job_id", job.id)
+          .neq("id", pay.id)
+          .neq("status", "reversed");
+
+        for (const pjp of priorJobPayments ?? []) {
+          const pAmt = Number(pjp.amount || 0);
+          const pAlloc = Number(pjp.allocated_amount || 0);
+          const unalloc = Math.max(0, pAmt - pAlloc);
+          const allocAmt = unalloc > 0 ? unalloc : pAmt;
+          if (allocAmt > 0) {
+            await supabaseAdmin.from("payment_allocations").insert({
+              firm_id: job.firm_id,
+              payment_id: pjp.id,
+              invoice_id: invoiceId,
+              amount: allocAmt,
+              allocated_by: userId,
+            });
+            await supabaseAdmin
+              .from("payments")
+              .update({
+                allocated_amount: pAmt,
+                status: "allocated",
+              })
+              .eq("id", pjp.id);
+          }
+        }
       }
 
       // If the payment didn't have a linked job_id yet and was allocated here, link it

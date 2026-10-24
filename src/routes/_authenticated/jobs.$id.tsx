@@ -809,8 +809,10 @@ function JobDetail() {
                       <span className="font-mono">
                         −{" "}
                         {inr(
-                          Number(wf.data.job_discount || 0) +
+                          Math.max(
+                            Number(wf.data.job_discount || 0),
                             Number(wf.data.clearing_discount || 0),
+                          ),
                         )}
                       </span>
                     </div>
@@ -821,12 +823,27 @@ function JobDetail() {
                       <span className="font-mono">− {inr(wf.data.other_deduction)}</span>
                     </div>
                   )}
-                  {Number(wf.data.final_amount) > 0 && (
-                    <div className="flex items-center justify-between font-medium">
-                      <span className="text-muted-foreground">Final amount</span>
-                      <span className="font-mono">{inr(wf.data.final_amount)}</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const effectiveDiscount = Math.max(
+                      Number(wf.data.job_discount || 0),
+                      Number(wf.data.clearing_discount || 0),
+                    );
+                    const effectiveFinal = Math.max(
+                      0,
+                      Number(job.fee || 0) -
+                        effectiveDiscount -
+                        Number(wf.data.tds_tcs || 0) -
+                        Number(wf.data.other_deduction || 0) -
+                        Number(wf.data.advance || 0),
+                    );
+                    if (effectiveFinal <= 0) return null;
+                    return (
+                      <div className="flex items-center justify-between font-medium">
+                        <span className="text-muted-foreground">Final amount</span>
+                        <span className="font-mono">{inr(effectiveFinal)}</span>
+                      </div>
+                    );
+                  })()}
                   {wf.data.overdue && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                       Payment overdue

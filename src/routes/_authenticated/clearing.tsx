@@ -127,6 +127,8 @@ interface ClientJob {
   financial_status: string | null;
   fee: number;
   discount: number;
+  tds_tcs?: number;
+  other_deduction?: number;
   net_amount: number;
   paid_amount: number;
   service_name: string;
@@ -290,7 +292,7 @@ function ClearingDeskPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status), payments(id, amount, status)",
+          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, tds_tcs, other_deduction, discount, final_amount, status), payments(id, amount, status)",
         )
         .order("job_code", { ascending: true });
 
@@ -303,6 +305,17 @@ function ClearingDeskPage() {
 
         const clearingRec = Array.isArray(j.job_clearing) ? j.job_clearing[0] : j.job_clearing;
         const initialAdvance = Number(clearingRec?.advance || 0);
+        const tdsTcs = Number(clearingRec?.tds_tcs || 0);
+        const otherDed = Number(clearingRec?.other_deduction || 0);
+        // Avoid double-counting discount if job_clearing.discount duplicates job.discount
+        const rawClearingDisc = Number(clearingRec?.discount || 0);
+        const additionalClearingDisc =
+          rawClearingDisc > discount
+            ? rawClearingDisc - discount
+            : rawClearingDisc === discount
+              ? 0
+              : rawClearingDisc;
+        const extraDeductions = tdsTcs + otherDed + additionalClearingDisc;
 
         // Sum direct advance payments recorded against this job
         const directAdvance = ((j.payments as any[]) ?? [])
@@ -335,8 +348,8 @@ function ClearingDeskPage() {
         // Effective prior paid amount (from invoice allocations or initial advance)
         const totalPriorPaid = hasInvoice ? invPaid : totalAdvance;
 
-        // If invoiced, the net due to be cleared is the actual unpaid invoice outstanding; otherwise deduct initial advance
-        const netDue = hasInvoice ? invOutstanding : Math.max(0, baseNet - totalAdvance);
+        // If invoiced, the net due to be cleared is the actual unpaid invoice outstanding; otherwise deduct advance and deductions
+        const netDue = hasInvoice ? invOutstanding : Math.max(0, baseNet - totalAdvance - extraDeductions);
 
         return {
           id: j.id,
@@ -349,6 +362,8 @@ function ClearingDeskPage() {
           financial_status: j.financial_status ?? "open",
           fee,
           discount,
+          tds_tcs: tdsTcs,
+          other_deduction: otherDed,
           net_amount: netDue,
           paid_amount: totalPriorPaid,
           service_name: j.services?.name ?? "General Service",
@@ -1317,6 +1332,16 @@ function ClearingDeskPage() {
                           {job.discount > 0 && (
                             <div className="text-[10px] text-emerald-600 font-mono">
                               Prior Discount: -{inr(job.discount)}
+                            </div>
+                          )}
+                          {Boolean(job.tds_tcs && job.tds_tcs > 0) && (
+                            <div className="text-[10px] text-amber-600 font-mono">
+                              TDS / TCS: -{inr(job.tds_tcs!)}
+                            </div>
+                          )}
+                          {Boolean(job.other_deduction && job.other_deduction > 0) && (
+                            <div className="text-[10px] text-amber-600 font-mono">
+                              Other Deductions: -{inr(job.other_deduction!)}
                             </div>
                           )}
                           {job.paid_amount > 0 && (

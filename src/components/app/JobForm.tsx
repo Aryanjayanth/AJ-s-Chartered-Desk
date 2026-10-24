@@ -656,7 +656,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 _job_id: currentJob.id,
                 _advance: 0,
                 _tds_tcs: 0,
-                _discount: ded,
+                _discount: 0, // discount is stored on jobs.discount to avoid double-deduction
                 _other_deduction: 0,
                 _other_addition: 0,
                 _notes: "Initial deductions on job creation",
