@@ -16,7 +16,13 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/app/DataTable";
 import { DateRangePicker, NativeSelect, NoAccess, PageHeader } from "@/components/app/common";
@@ -35,7 +41,7 @@ export const Route = createFileRoute("/_authenticated/audit")({
 });
 
 interface AuditRow {
-  id: string;
+  id: number | string;
   created_at: string;
   user_id: string | null;
   module: string;
@@ -78,7 +84,9 @@ function formatFieldValue(key: string, val: unknown): string {
   // Date fields (YYYY-MM-DD or ISO timestamp)
   if (typeof val === "string") {
     if (
-      (lowerKey.includes("date") || lowerKey.includes("created_at") || lowerKey.includes("period")) &&
+      (lowerKey.includes("date") ||
+        lowerKey.includes("created_at") ||
+        lowerKey.includes("period")) &&
       /^\d{4}-\d{2}-\d{2}/.test(val)
     ) {
       return val.includes("T") ? fmtDateTime(val) : fmtDate(val);
@@ -112,9 +120,7 @@ function parseAuditDiff(oldVal: unknown, newVal: unknown): FieldDiff[] {
     const isNew = vOld === undefined && vNew !== undefined;
     const isDeleted = vOld !== undefined && vNew === undefined;
 
-    const formattedLabel = k
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    const formattedLabel = k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
     diffs.push({
       key: k,
@@ -203,12 +209,12 @@ function AuditPage() {
         }
         exportFilename="audit_trail_logs"
         exportTransform={(a) => ({
-          "Timestamp": fmtDateTime(a.created_at),
-          "User": uname(a.user_id),
-          "Module": label(a.module),
-          "Action": label(a.action),
+          Timestamp: fmtDateTime(a.created_at),
+          User: uname(a.user_id),
+          Module: label(a.module),
+          Action: label(a.action),
           "Record Reference": summary(a.new_value) || a.record_id || "",
-          "Reason": a.reason ?? "",
+          Reason: a.reason ?? "",
         })}
         onRowClick={(a) => setSel(a)}
         toolbar={
@@ -300,7 +306,10 @@ function AuditPage() {
             sort: (a) => uname(a.user_id),
             render: (a) => (
               <div className="flex items-center gap-1.5 truncate">
-                <span className="font-medium text-xs text-foreground truncate" title={uname(a.user_id)}>
+                <span
+                  className="font-medium text-xs text-foreground truncate"
+                  title={uname(a.user_id)}
+                >
                   {uname(a.user_id)}
                 </span>
               </div>
@@ -324,8 +333,14 @@ function AuditPage() {
             sort: (a) => a.action,
             render: (a) => {
               const actionStr = a.action.toLowerCase();
-              const isCreate = actionStr.includes("create") || actionStr.includes("insert") || actionStr.includes("seed");
-              const isDanger = actionStr.includes("delete") || actionStr.includes("cancel") || actionStr.includes("reverse");
+              const isCreate =
+                actionStr.includes("create") ||
+                actionStr.includes("insert") ||
+                actionStr.includes("seed");
+              const isDanger =
+                actionStr.includes("delete") ||
+                actionStr.includes("cancel") ||
+                actionStr.includes("reverse");
 
               return (
                 <span
@@ -367,7 +382,10 @@ function AuditPage() {
             header: "Reason / Notes",
             className: "max-w-[200px]",
             render: (a) => (
-              <span className="text-xs text-muted-foreground truncate block max-w-[200px]" title={a.reason ?? ""}>
+              <span
+                className="text-xs text-muted-foreground truncate block max-w-[200px]"
+                title={a.reason ?? ""}
+              >
                 {a.reason || <span className="opacity-40 italic">None provided</span>}
               </span>
             ),
@@ -390,7 +408,8 @@ function AuditPage() {
               </div>
             </div>
             <DialogDescription className="text-xs text-muted-foreground mt-1">
-              Performed by <strong className="text-foreground">{uname(sel?.user_id ?? null)}</strong> on{" "}
+              Performed by{" "}
+              <strong className="text-foreground">{uname(sel?.user_id ?? null)}</strong> on{" "}
               {sel?.created_at ? fmtDateTime(sel.created_at) : ""}
             </DialogDescription>
           </DialogHeader>
@@ -483,7 +502,9 @@ function AuditPage() {
                           key={item.key}
                           className={cn(
                             "transition-colors",
-                            item.isDifferent ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/30",
+                            item.isDifferent
+                              ? "bg-amber-500/5 hover:bg-amber-500/10"
+                              : "hover:bg-muted/30",
                           )}
                         >
                           <td className="py-2 px-3 font-medium text-foreground whitespace-nowrap">

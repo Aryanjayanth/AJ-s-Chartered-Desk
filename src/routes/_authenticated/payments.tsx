@@ -28,7 +28,7 @@ import {
   ReasonDialog,
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
-import { useClientLookup } from "@/hooks/use-roles";
+import { useClientLookup, useRoles } from "@/hooks/use-roles";
 import { usePermissions } from "@/hooks/use-permissions";
 import { recordPaymentEntry } from "@/lib/firms.functions";
 import { readList } from "@/lib/supabase-read";
@@ -57,6 +57,7 @@ const emptyPayment = {
 function PaymentsPage() {
   const navigate = useNavigate();
   const { user } = useRouteContext({ from: "/_authenticated" });
+  const { isFinance } = useRoles();
   const { canCreate, canEdit, canSeeAmounts } = usePermissions();
   const qc = useQueryClient();
   const { data: clients } = useClientLookup();
@@ -85,7 +86,9 @@ function PaymentsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("id,job_code,title,client_id,status,due_date,fee,discount,net_amount,services(name)")
+        .select(
+          "id,job_code,title,client_id,status,due_date,fee,discount,net_amount,services(name)",
+        )
         .neq("status", "cancelled")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -146,8 +149,7 @@ function PaymentsPage() {
   // Save Payment
   const savePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canCreate("payments"))
-      return toast.error("You do not have permission to record payments");
+    if (!canCreate("payments")) return toast.error("You do not have permission to record payments");
     if (!payClientId) return toast.error("Please select a client");
     const amt = Number(payForm.amount);
     if (!(amt > 0)) return toast.error("Amount must be greater than zero");
@@ -253,10 +255,14 @@ function PaymentsPage() {
                     job_id: selJobId,
                     amount: prev.amount
                       ? prev.amount
-                      : (selJob ? String(selJob.net_amount || selJob.fee || "") : ""),
+                      : selJob
+                        ? String(selJob.net_amount || selJob.fee || "")
+                        : "",
                     narration: prev.narration
                       ? prev.narration
-                      : (selJob ? `Advance payment for job ${selJob.job_code}` : ""),
+                      : selJob
+                        ? `Advance payment for job ${selJob.job_code}`
+                        : "",
                   }));
                 }}
               >
@@ -268,7 +274,8 @@ function PaymentsPage() {
                 ))}
               </NativeSelect>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Automatically clears against this job up to its required fee. Any excess amount stays in client credit balance for future clearing.
+                Automatically clears against this job up to its required fee. Any excess amount
+                stays in client credit balance for future clearing.
               </p>
             </Field>
           )}
@@ -329,7 +336,9 @@ function PaymentsPage() {
       if (payFilters.status && p.status !== payFilters.status) return false;
       const basisDate =
         payFilters.dateBasis === "entered"
-          ? (p.created_at ? p.created_at.slice(0, 10) : null)
+          ? p.created_at
+            ? p.created_at.slice(0, 10)
+            : null
           : p.payment_date;
       if (payFilters.from && (!basisDate || basisDate < payFilters.from)) return false;
       if (payFilters.to && (!basisDate || basisDate > payFilters.to)) return false;
@@ -383,16 +392,20 @@ function PaymentsPage() {
         <DataTable
           rows={filteredPayments}
           loading={payQuery.isLoading}
-          onRowClick={(p) => {
-            navigate({
-              to: "/clearing",
-              search: {
-                client: p.client_id,
-                payment: p.id,
-                job: p.job_id || undefined,
-              },
-            });
-          }}
+          onRowClick={
+            isFinance
+              ? (p) => {
+                  navigate({
+                    to: "/clearing",
+                    search: {
+                      client: p.client_id,
+                      payment: p.id,
+                      job: p.job_id || undefined,
+                    },
+                  });
+                }
+              : undefined
+          }
           empty="No payments match these filters."
           search={(p) =>
             `${p.payment_code} ${cname(p.client_id)} ${jcode(p.job_id) ?? "Client Balance"}`
@@ -538,31 +551,35 @@ function PaymentsPage() {
               header: "Status",
               render: (p) => <StatusBadge status={p.status} />,
             },
-            {
-              key: "clearing",
-              header: "Clearing",
-              render: (p) =>
-                p.status !== "reversed" && (
-                  <Button
-                    size="sm"
-                    variant={p.status === "allocated" ? "ghost" : "outline"}
-                    className="h-7 text-xs px-2.5 font-medium"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate({
-                        to: "/clearing",
-                        search: {
-                          client: p.client_id,
-                          payment: p.id,
-                          job: p.job_id || undefined,
-                        },
-                      });
-                    }}
-                  >
-                    {p.status === "allocated" ? "View Clearing" : "Clear"}
-                  </Button>
-                ),
-            },
+            ...(isFinance
+              ? [
+                  {
+                    key: "clearing",
+                    header: "Clearing",
+                    render: (p: (typeof filteredPayments)[number]) =>
+                      p.status !== "reversed" && (
+                        <Button
+                          size="sm"
+                          variant={p.status === "allocated" ? "ghost" : "outline"}
+                          className="h-7 text-xs px-2.5 font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate({
+                              to: "/clearing",
+                              search: {
+                                client: p.client_id,
+                                payment: p.id,
+                                job: p.job_id || undefined,
+                              },
+                            });
+                          }}
+                        >
+                          {p.status === "allocated" ? "View Clearing" : "Clear"}
+                        </Button>
+                      ),
+                  },
+                ]
+              : []),
             ...(canEdit("payments")
               ? [
                   {

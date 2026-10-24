@@ -44,7 +44,15 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useProfiles } from "@/hooks/use-roles";
 import { deleteJobs } from "@/lib/firms.functions";
-import { downloadCsv, errMsg, fmtDate, inr, JOB_STATUSES, jobDisplayStatus, label } from "@/lib/format";
+import {
+  downloadCsv,
+  errMsg,
+  fmtDate,
+  inr,
+  JOB_STATUSES,
+  jobDisplayStatus,
+  label,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
@@ -80,10 +88,12 @@ interface FlatJobItem {
   created_at: string | null;
   due_date: string | null;
   period_start?: string | null;
+  period_end?: string | null;
   checklist: ChecklistItem[];
   assigned_staff: string | null;
   assigned_staff_name: string | null;
   fee: number | null;
+  discount: number | null;
   net_amount: number | null;
   auto_invoice?: boolean | null;
   invoices: Array<{ id: string; invoice_no: string; status: string }>;
@@ -114,7 +124,7 @@ function TasksPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id,job_code,client_id,service_id,title,status,financial_status,due_date,created_at,period_start,checklist,assigned_staff,fee,net_amount,auto_invoice,clients(id,name,client_code),services(id,name),profiles!jobs_assigned_staff_fkey(full_name),invoice_items(invoice_id,invoices(id,invoice_no,status))",
+          "id,job_code,client_id,service_id,title,status,financial_status,due_date,created_at,period_start,period_end,checklist,assigned_staff,fee,discount,net_amount,auto_invoice,clients(id,name,client_code),services(id,name),profiles!jobs_assigned_staff_fkey(full_name),invoice_items(invoice_id,invoices(id,invoice_no,status))",
         )
         .order("job_code", { ascending: true });
 
@@ -148,10 +158,12 @@ function TasksPage() {
           created_at: j.created_at ?? null,
           due_date: j.due_date ?? null,
           period_start: j.period_start ?? null,
+          period_end: j.period_end ?? null,
           checklist: Array.isArray(j.checklist) ? j.checklist : [],
           assigned_staff: j.assigned_staff ?? null,
           assigned_staff_name: j.profiles?.full_name ?? null,
           fee: j.fee ?? null,
+          discount: j.discount ?? null,
           net_amount: j.net_amount ?? null,
           auto_invoice: j.auto_invoice ?? false,
           invoices: taskInvoices,
@@ -309,7 +321,7 @@ function TasksPage() {
 
     try {
       const ids = jobsToDelete.map((j) => j.id);
-      const res = await deleteJobs(ids, force);
+      const res = await deleteJobs({ data: { jobIds: ids, force } });
       toast.dismiss(toastId);
 
       if (res.deleted > 0) {
@@ -337,7 +349,9 @@ function TasksPage() {
 
   // Metrics
   const totalJobs = jobsList.length;
-  const pendingJobs = jobsList.filter((j) => jobDisplayStatus(j) === "pending" || j.status === "pending").length;
+  const pendingJobs = jobsList.filter(
+    (j) => jobDisplayStatus(j) === "pending" || j.status === "pending",
+  ).length;
   const completedJobs = jobsList.filter((j) => j.status === "completed").length;
   const overdueJobsCount = jobsList.filter((j) => jobDisplayStatus(j) === "overdue").length;
 
@@ -353,6 +367,8 @@ function TasksPage() {
       Client: j.client_name ?? "",
       Status: label(jobDisplayStatus(j)),
       Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "",
+      "Deductions/TDS": canSeeAmounts("jobs") && Number(j.discount) > 0 ? j.discount : 0,
+      "Net Billable": canSeeAmounts("jobs") && j.net_amount != null ? j.net_amount : (j.fee ?? ""),
       "Billing Status": j.invoice_no ?? j.financial_status,
       "Done By": j.status === "completed" ? (doneByMap.get(j.id) ?? "-") : "-",
       "Created Date": fmtDate(j.created_at),
@@ -509,6 +525,10 @@ function TasksPage() {
                   Client: j.client_name ?? "",
                   Status: label(jobDisplayStatus(j)),
                   Fee: canSeeAmounts("jobs") && j.fee != null ? j.fee : "",
+                  "Deductions/TDS":
+                    canSeeAmounts("jobs") && Number(j.discount) > 0 ? j.discount : 0,
+                  "Net Billable":
+                    canSeeAmounts("jobs") && j.net_amount != null ? j.net_amount : (j.fee ?? ""),
                   "Billing Status": j.invoice_no ?? j.financial_status,
                   "Done By": j.status === "completed" ? (doneByMap.get(j.id) ?? "-") : "-",
                   "Created Date": fmtDate(j.created_at),
@@ -564,7 +584,11 @@ function TasksPage() {
               label="Date"
             />
 
-            {(selectedStatuses.length > 0 || clientFilter || serviceFilter || dateFrom || dateTo) && (
+            {(selectedStatuses.length > 0 ||
+              clientFilter ||
+              serviceFilter ||
+              dateFrom ||
+              dateTo) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -638,12 +662,25 @@ function TasksPage() {
           {
             key: "fee",
             header: "Fee",
-            sort: (j) => j.fee ?? 0,
-            render: (j) => (
-              <span className="text-xs font-mono font-semibold">
-                {canSeeAmounts("jobs") && j.fee != null ? inr(j.fee) : "-"}
-              </span>
-            ),
+            sort: (j) => j.net_amount ?? j.fee ?? 0,
+            render: (j) => {
+              if (!canSeeAmounts("jobs") || j.fee == null) {
+                return <span className="text-xs text-muted-foreground">-</span>;
+              }
+              const hasDiscount = Number(j.discount) > 0;
+              return (
+                <div className="flex flex-col">
+                  <span className="text-xs font-mono font-semibold">
+                    {inr(j.net_amount ?? j.fee)}
+                  </span>
+                  {hasDiscount && (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono whitespace-nowrap">
+                      Ded/TDS: −{inr(j.discount)}
+                    </span>
+                  )}
+                </div>
+              );
+            },
           },
           {
             key: "billing",
@@ -652,7 +689,10 @@ function TasksPage() {
             render: (j) => {
               if (j.invoices && j.invoices.length > 0) {
                 return (
-                  <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex flex-wrap items-center gap-1.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {j.invoices.map((inv) => (
                       <Link
                         key={inv.id}
@@ -666,9 +706,7 @@ function TasksPage() {
                         </span>
                       </Link>
                     ))}
-                    {j.financial_status !== "closed" && (
-                      <StatusBadge status={j.financial_status} />
-                    )}
+                    {j.financial_status !== "closed" && <StatusBadge status={j.financial_status} />}
                   </div>
                 );
               }

@@ -39,7 +39,7 @@ import {
   jobDisplayStatus,
   label,
 } from "@/lib/format";
-import { clearingLabel } from "@/lib/job-workflow";
+import { clearingLabel, isWorkflow, type JobWorkflow } from "@/lib/job-workflow";
 
 function stripSystemNotes(notes: string | null | undefined): string {
   if (!notes) return "";
@@ -112,9 +112,9 @@ function JobDetail() {
   });
   // The single source of truth for workflow position. Everything below renders
   // from this rather than recomputing stage rules in the browser.
-  const wf = useQuery({
+  const wf = useQuery<JobWorkflow>({
     queryKey: ["job-workflow", id],
-    queryFn: async () => {
+    queryFn: async (): Promise<JobWorkflow> => {
       const { data, error } = await supabase.rpc("job_workflow", { _job_id: id });
       if (error) throw error;
       if (!isWorkflow(data)) throw new Error("Unexpected workflow response");
@@ -444,7 +444,9 @@ function JobDetail() {
               {hasInvoices && (
                 <div className="mt-4 space-y-2">
                   <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    {connectedInvoices.length > 1 ? `Linked Invoices (${connectedInvoices.length})` : "Linked Invoice"}
+                    {connectedInvoices.length > 1
+                      ? `Linked Invoices (${connectedInvoices.length})`
+                      : "Linked Invoice"}
                   </div>
                   {connectedInvoices.map((i) => (
                     <div
@@ -476,14 +478,15 @@ function JobDetail() {
                 </div>
               )}
 
-              {!hasInvoices && wf.data && (
+              {isFinance && !hasInvoices && wf.data && (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
                   <div className="space-y-0.5">
                     <div className="text-xs font-semibold text-foreground">
                       Awaiting payment clearing to generate invoice
                     </div>
                     <div className="text-[11px] text-muted-foreground">
-                      Invoices are strictly generated upon recording or clearing a payment against this task.
+                      Invoices are strictly generated upon recording or clearing a payment against
+                      this task.
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -544,11 +547,29 @@ function JobDetail() {
                           <span className="font-mono">{inr(job.fee)}</span>
                         </div>
                         <div>
-                          <div className="text-xs text-muted-foreground">Discount / Deductions</div>
+                          <div className="text-xs text-muted-foreground">
+                            Discount / Deductions (TDS)
+                          </div>
                           <span className="font-mono text-amber-600 dark:text-amber-400">
                             {Number(job.discount) > 0 ? `− ${inr(job.discount)}` : inr(0)}
                           </span>
                         </div>
+                        {wf.data && Number(wf.data.tds_tcs) > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">TDS / TCS Withheld</div>
+                            <span className="font-mono text-amber-600 dark:text-amber-400">
+                              − {inr(wf.data.tds_tcs)}
+                            </span>
+                          </div>
+                        )}
+                        {wf.data && Number(wf.data.other_deduction) > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Other Deductions</div>
+                            <span className="font-mono text-amber-600 dark:text-amber-400">
+                              − {inr(wf.data.other_deduction)}
+                            </span>
+                          </div>
+                        )}
                         <div>
                           <div className="text-xs text-muted-foreground">Net Billable</div>
                           <span className="font-mono font-semibold">{inr(job.net_amount)}</span>
@@ -686,13 +707,19 @@ function JobDetail() {
                     <div className="space-y-1">
                       {payQ.data.map((p) => (
                         <div key={p.id} className="space-y-0.5">
-                          <Link
-                            to="/clearing"
-                            search={{ client: job.client_id, payment: p.id, job: id }}
-                            className="font-mono text-primary font-semibold underline underline-offset-2 hover:opacity-80"
-                          >
-                            {p.payment_code}
-                          </Link>
+                          {isFinance ? (
+                            <Link
+                              to="/clearing"
+                              search={{ client: job.client_id, payment: p.id, job: id }}
+                              className="font-mono text-primary font-semibold underline underline-offset-2 hover:opacity-80"
+                            >
+                              {p.payment_code}
+                            </Link>
+                          ) : (
+                            <span className="font-mono font-semibold text-foreground">
+                              {p.payment_code}
+                            </span>
+                          )}
                           <div className="text-[11px] text-muted-foreground">
                             {inr(p.amount)} ·{" "}
                             {p.status === "allocated" ? "Cleared" : label(p.status)}
@@ -702,7 +729,7 @@ function JobDetail() {
                     </div>
                   )}
 
-                  {job.financial_status !== "closed" && (
+                  {isFinance && job.financial_status !== "closed" && (
                     <Link
                       to="/clearing"
                       search={{ client: job.client_id, job: id }}
@@ -714,7 +741,9 @@ function JobDetail() {
                 </div>
               </div>
               <div className="flex items-start justify-between gap-2">
-                <span className="text-muted-foreground">Invoice{connectedInvoices.length > 1 ? "s" : ""}</span>
+                <span className="text-muted-foreground">
+                  Invoice{connectedInvoices.length > 1 ? "s" : ""}
+                </span>
                 {hasInvoices ? (
                   <div className="flex flex-col items-end gap-1">
                     {connectedInvoices.map((i) => (
@@ -738,8 +767,32 @@ function JobDetail() {
                     <span className="text-muted-foreground">Clearing</span>
                     <span>{clearingLabel(wf.data.clearing_status)}</span>
                   </div>
+                  {Number(wf.data.tds_tcs) > 0 && (
+                    <div className="flex items-center justify-between text-xs text-amber-600 dark:text-amber-400">
+                      <span>TDS / TCS</span>
+                      <span className="font-mono">− {inr(wf.data.tds_tcs)}</span>
+                    </div>
+                  )}
+                  {Number(wf.data.job_discount || wf.data.clearing_discount) > 0 && (
+                    <div className="flex items-center justify-between text-xs text-amber-600 dark:text-amber-400">
+                      <span>Discount / Deductions</span>
+                      <span className="font-mono">
+                        −{" "}
+                        {inr(
+                          Number(wf.data.job_discount || 0) +
+                            Number(wf.data.clearing_discount || 0),
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {Number(wf.data.other_deduction) > 0 && (
+                    <div className="flex items-center justify-between text-xs text-amber-600 dark:text-amber-400">
+                      <span>Other Deductions</span>
+                      <span className="font-mono">− {inr(wf.data.other_deduction)}</span>
+                    </div>
+                  )}
                   {Number(wf.data.final_amount) > 0 && (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between font-medium">
                       <span className="text-muted-foreground">Final amount</span>
                       <span className="font-mono">{inr(wf.data.final_amount)}</span>
                     </div>
@@ -751,19 +804,21 @@ function JobDetail() {
                   )}
                 </>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs"
-                onClick={() =>
-                  navigate({
-                    to: "/clearing",
-                    search: { client: job.client_id, job: id },
-                  })
-                }
-              >
-                Payment clearing
-              </Button>
+              {isFinance && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() =>
+                    navigate({
+                      to: "/clearing",
+                      search: { client: job.client_id, job: id },
+                    })
+                  }
+                >
+                  Payment clearing
+                </Button>
+              )}
             </CardContent>
           </Card>
 

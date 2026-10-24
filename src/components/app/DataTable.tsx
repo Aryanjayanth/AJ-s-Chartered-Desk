@@ -98,7 +98,7 @@ export function DataTable<T extends { id: string | number }>({
         if (typeof va === "string" && typeof vb === "string") {
           return va.localeCompare(vb, undefined, { numeric: true }) * dir;
         }
-        return (va > vb ? dir : va < vb ? -dir : 0);
+        return va > vb ? dir : va < vb ? -dir : 0;
       });
     }
     return r;

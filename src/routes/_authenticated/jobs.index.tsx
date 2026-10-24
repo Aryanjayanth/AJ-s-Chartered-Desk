@@ -262,10 +262,11 @@ function JobsPage() {
         invoices: groupInvoices,
         title: tasks.map((t) => t.title).join(" + "),
         status: aggregateStatus(tasks),
-        due_date: tasks
-          .map((t) => t.due_date)
-          .filter(Boolean)
-          .sort()[0] ?? null,
+        due_date:
+          tasks
+            .map((t) => t.due_date)
+            .filter(Boolean)
+            .sort()[0] ?? null,
         assigned_staff_name: first.assigned_staff_name,
         total_fee: tasks.reduce((s, t) => s + (Number(t.fee) || 0), 0),
         total_net: tasks.reduce((s, t) => s + (Number(t.net_amount) || 0), 0),
@@ -337,13 +338,13 @@ function JobsPage() {
 
   const hasActiveFilters = Boolean(
     searchQuery.trim() ||
-      selectedStatuses.length > 0 ||
-      fl.client ||
-      fl.service ||
-      fl.staff ||
-      fl.company ||
-      fl.from ||
-      fl.to,
+    selectedStatuses.length > 0 ||
+    fl.client ||
+    fl.service ||
+    fl.staff ||
+    fl.company ||
+    fl.from ||
+    fl.to,
   );
 
   const resetAllFilters = () => {
@@ -378,7 +379,9 @@ function JobsPage() {
 
   // Metrics
   const totalJobs = groups.length;
-  const pendingJobs = groups.filter((g) => jobDisplayStatus(g) === "pending" || g.status === "pending").length;
+  const pendingJobs = groups.filter(
+    (g) => jobDisplayStatus(g) === "pending" || g.status === "pending",
+  ).length;
   const completedJobs = groups.filter((g) => g.status === "completed").length;
   const overdueJobsCount = groups.filter((g) => jobDisplayStatus(g) === "overdue").length;
 
@@ -386,8 +389,7 @@ function JobsPage() {
     return <JobForm open={open} onOpenChange={setOpen} />;
   }
 
-  const toggleExpand = (key: string) =>
-    setExpanded((p) => ({ ...p, [key]: !p[key] }));
+  const toggleExpand = (key: string) => setExpanded((p) => ({ ...p, [key]: !p[key] }));
 
   return (
     <div className="space-y-5">
@@ -552,8 +554,6 @@ function JobsPage() {
               Reset
             </Button>
           )}
-
-
         </div>
 
         <div className="overflow-x-auto">
@@ -576,7 +576,9 @@ function JobsPage() {
                 <th className="py-2.5 px-3">Client</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Created</th>
                 {/* Note: Due column removed per user request */}
-                {canSeeAmounts("jobs") && <th className="py-2.5 px-3 text-right whitespace-nowrap">Fee</th>}
+                {canSeeAmounts("jobs") && (
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">Fee</th>
+                )}
                 <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
                 <th className="py-2.5 px-3 min-w-[130px] whitespace-nowrap">Billing</th>
               </tr>
@@ -620,7 +622,9 @@ function JobsPage() {
                         <span
                           className={cn(
                             "font-medium transition-all",
-                            isCompleted ? "line-through text-muted-foreground/75" : "text-foreground",
+                            isCompleted
+                              ? "line-through text-muted-foreground/75"
+                              : "text-foreground",
                           )}
                         >
                           {g.title}
@@ -648,7 +652,10 @@ function JobsPage() {
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         {g.invoices && g.invoices.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="flex flex-wrap items-center gap-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {g.invoices.map((inv) => (
                               <Link
                                 key={inv.id}
@@ -662,9 +669,10 @@ function JobsPage() {
                                 </span>
                               </Link>
                             ))}
-                            {g.financial_status !== "closed" && g.tasks.some((t) => !t.invoices || t.invoices.length === 0) && (
-                              <StatusBadge status={g.financial_status} />
-                            )}
+                            {g.financial_status !== "closed" &&
+                              g.tasks.some((t) => !t.invoices || t.invoices.length === 0) && (
+                                <StatusBadge status={g.financial_status} />
+                              )}
                           </div>
                         ) : (
                           <StatusBadge status={g.financial_status} />
@@ -708,7 +716,10 @@ function JobsPage() {
                                   <span className="ml-auto font-mono">{inr(t.fee)}</span>
                                 )}
                                 {t.invoices && t.invoices.length > 0 ? (
-                                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <div
+                                    className="flex items-center gap-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
                                     {t.invoices.map((inv) => (
                                       <Link
                                         key={inv.id}
@@ -724,7 +735,10 @@ function JobsPage() {
                                     ))}
                                   </div>
                                 ) : (
-                                  <StatusBadge status={t.financial_status} className="text-[10px] px-1.5 py-0" />
+                                  <StatusBadge
+                                    status={t.financial_status}
+                                    className="text-[10px] px-1.5 py-0"
+                                  />
                                 )}
                                 <StatusBadge status={jobDisplayStatus(t)} />
                               </div>

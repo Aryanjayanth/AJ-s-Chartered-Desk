@@ -388,9 +388,7 @@ export function ChecklistFilter({
       </PopoverTrigger>
       <PopoverContent className="w-56 p-2" align="start">
         <div className="flex items-center justify-between border-b pb-1.5 mb-1.5 px-1">
-          <span className="text-xs font-semibold text-muted-foreground">
-            {filterLabel}
-          </span>
+          <span className="text-xs font-semibold text-muted-foreground">{filterLabel}</span>
           {selected.length > 0 && (
             <button
               type="button"

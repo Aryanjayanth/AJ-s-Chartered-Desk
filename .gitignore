@@ -42,3 +42,5 @@ supabase/.temp/
 # Archived historical migrations & backups
 archive/
 backups/
+
+.vercel

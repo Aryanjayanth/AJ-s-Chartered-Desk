@@ -90,7 +90,11 @@ function AuthPage() {
 
         {/* Brand Header with Uploaded Logo */}
         <div className="relative z-10 flex items-center gap-3.5">
-          <img src="/logo.png" alt="AJ's Chartered Desk" className="h-11 w-auto object-contain mix-blend-screen" />
+          <img
+            src="/logo.png"
+            alt="AJ's Chartered Desk"
+            className="h-11 w-auto object-contain mix-blend-screen"
+          />
           <div>
             <div className="text-xl font-bold tracking-tight text-white">AJ's Chartered Desk</div>
             <div className="text-xs font-medium tracking-wide text-slate-400">by Aryan Jayanth</div>

@@ -22,39 +22,46 @@ It encapsulates real-world Indian regulatory and practice operations — includi
 ## Key Modules & Platform Capabilities
 
 ### 🏢 1. Multi-Tenant Firm Isolation & Super Admin Platform
+
 - **PostgreSQL Row Level Security (RLS)**: Enforces firm-level data isolation on all business tables using restrictive policies (`firm_id = current_firm_id()`).
 - **Super Admin Console**: Platform operators can provision firms, manage subscriptions, invite firm owners, and seamlessly switch contexts using `acting_firm_id`.
 - **Platform Privacy Toggle**: Allows platform operators to inspect system status with full privacy safeguards.
 
 ### 👥 2. Client 360 & Retainer Schedules
+
 - **Client Directory**: Centralized client profiles tracking PAN, TAN, GSTIN, business structures (Individual, Private Ltd, LLP, Partnership, Trust), multiple contacts, and assigned staff.
 - **Client Services & Retainers**: Retainer agreements (`client_services`) define agreed fees, recurrence frequencies (Monthly, Quarterly, Half-Yearly, Yearly), start/end dates, due-day rules, and designated staff.
 - **Rolling Period Mathematics**: Accurately computes statutory period windows (e.g. `01-04-2026 to 30-04-2026` due `20-05-2026`).
 
 ### ⚡ 3. Automated Recurring Jobs & Operational Tasks
+
 - **Automated Job Generator**: Automated daily generation via `pg_cron` (`generate_recurring_jobs_all`) and on-demand session generation with strict de-duplication rules.
 - **Granular Lifecycle Tracking**: Status transitions (`Pending` → `In Progress` → `Completed` / `On Hold` / `Cancelled`) logged with audit reasons.
 - **Overdue Calculations**: Statutory deadlines derived dynamically at read time without reliance on polling jobs.
 - **Task & Subtask Checklists**: Pre-configured compliance checklists (GST returns, tax audit, TDS filings) to ensure systematic team execution.
 
 ### 💳 4. Payment Clearing Desk & Financial Allocation Engine
+
 - **Unallocated Advance Pooling**: Client payments and deposits are logged into a unified money jar.
 - **Full-Window Allocation Workspace**: Clean workspace to inspect available advances, view open job fees and reimbursable outlays, and apply manual allocations or 1-click Quick Auto-Fill.
 - **Discounts & Waivers**: Apply authorized discounts directly during settlement without creating phantom balance anomalies.
 - **Over-Allocation Prevention**: Real-time validation prevents allocating more than available receipt balances or outstanding dues.
 
 ### 🧾 5. Invoicing & Billing
+
 - **Compliant Tax Invoices**: Automatically breaks down CGST, SGST, IGST, and itemized service fees.
 - **Automated Invoicing on Job Completion**: Jobs flagged with `auto_invoice` trigger secure, automated invoice creation and billing item linkage upon completion.
 - **Print & PDF Generation**: Professional tax invoices formatted for immediate client dispatch.
 - **Financial Immutability**: Financial records are append-only. Corrections and adjustments are processed strictly through security-definer cancellation and reversal RPCs.
 
 ### 🛡️ 6. Granular Roles & Permissions Matrix
+
 - **Five Grantable Capabilities**: `view`, `create`, `edit`, `delete`, and `amounts`.
 - **Cosmetic vs. Real Security**: List views carrying monetary figures (`jobs_list`, `payments_list`, `expenses_list`) mask figures to `NULL` in the database if the caller lacks the `amounts` capability, preventing sensitive fee exposure.
 - **Admin Lockout Protection**: Owner and Admin roles maintain unconditional access, ensuring a firm can never accidentally lock itself out.
 
 ### 📊 7. Receivables, Ageing & Analytics
+
 - **Receivables Ageing Analysis**: Categorized by standard ageing buckets (`Current`, `1–30`, `31–60`, `61–90`, `90+` days) with descending outstanding ranking.
 - **Bank Statement Reconciliation**: CSV parser with automated reference matching (UTR, cheque numbers), date tolerances, and duplicate detection.
 - **Audit Trail**: Every creation, status change, discount, and reversal is stamped with user, timestamp, and before/after state.
@@ -69,14 +76,14 @@ It encapsulates real-world Indian regulatory and practice operations — includi
 
 ### Production Architecture Verification
 
-| Dimension | Implementation | Production Status |
-| :--- | :--- | :---: |
-| **Multi-Tenancy** | Restrictive PostgreSQL RLS with `current_firm_id()` | ✅ Verified |
-| **Data Integrity** | Business rules and totals computed via triggers and DB RPCs | ✅ Verified |
-| **Financial Ledger** | Append-only payments; reversal RPCs; no plain `DELETE` | ✅ Verified |
-| **Data Masking** | DB-level `amounts` column masking for Cashier / Staff roles | ✅ Verified |
-| **Sequential Codes** | Concurrency-safe atomic document counters (`PAY-`, `INV-`, `JOB-`) | ✅ Verified |
-| **Build & Bundle** | Zero TypeScript compilation errors; code-split production bundle | ✅ Verified |
+| Dimension            | Implementation                                                     | Production Status |
+| :------------------- | :----------------------------------------------------------------- | :---------------: |
+| **Multi-Tenancy**    | Restrictive PostgreSQL RLS with `current_firm_id()`                |    ✅ Verified    |
+| **Data Integrity**   | Business rules and totals computed via triggers and DB RPCs        |    ✅ Verified    |
+| **Financial Ledger** | Append-only payments; reversal RPCs; no plain `DELETE`             |    ✅ Verified    |
+| **Data Masking**     | DB-level `amounts` column masking for Cashier / Staff roles        |    ✅ Verified    |
+| **Sequential Codes** | Concurrency-safe atomic document counters (`PAY-`, `INV-`, `JOB-`) |    ✅ Verified    |
+| **Build & Bundle**   | Zero TypeScript compilation errors; code-split production bundle   |    ✅ Verified    |
 
 ---
 
@@ -85,6 +92,7 @@ It encapsulates real-world Indian regulatory and practice operations — includi
 Before pointing production DNS and onboarding paying firms, complete the following items:
 
 ### 1. Supabase Production Settings
+
 - [ ] **Custom SMTP Provider**: Configure a dedicated transactional email provider (Resend, SendGrid, Amazon SES, or Postmark) in **Supabase Dashboard → Authentication → SMTP Settings**. Default Supabase email limits are strictly rate-limited (~3 emails/hour).
 - [ ] **Site URL & Redirect URLs**: Set your live domain (e.g., `https://desk.yourfirm.com/**`) under **Authentication → URL Configuration**.
 - [ ] **Database Backups**: Enable Point-In-Time Recovery (PITR) or daily automated backups in Supabase.
@@ -94,7 +102,9 @@ Before pointing production DNS and onboarding paying firms, complete the followi
   ```
 
 ### 2. Environment Variables
+
 Configure your production environment variables on your hosting provider:
+
 ```env
 VITE_SUPABASE_URL=https://your-production-project.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-production-anon-key
@@ -103,6 +113,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-production-service-role-key
 ```
 
 ### 3. Clear Test / Demo Data
+
 If test records were entered during staging, run [`supabase/clear_all_test_data.sql`](supabase/clear_all_test_data.sql) in the Supabase SQL Editor. This safely purges mock clients, jobs, payments, invoices, and sequence counters while preserving Super Admins, Firms, Users, Roles, and Master Services.
 
 ---
@@ -123,8 +134,8 @@ If test records were entered during staging, run [`supabase/clear_all_test_data.
 
 ```sh
 # 1. Clone repository
-git clone https://github.com/your-org/ca-practicedesk.git
-cd ca-practicedesk
+git clone https://github.com/Aryanjayanth/AJ-s-Chartered-Desk.git
+cd AJ-s-Chartered-Desk
 
 # 2. Install dependencies
 npm install
@@ -150,6 +161,7 @@ npm run preview
 ### Database Initialization
 
 To initialize a fresh database instance:
+
 1. Open your Supabase Project SQL Editor.
 2. Execute [`supabase/full_schema_setup.sql`](supabase/full_schema_setup.sql). This establishes the complete database schema, security definer functions, triggers, permissions matrix, and role defaults in a single step.
 

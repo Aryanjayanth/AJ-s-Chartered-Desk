@@ -2,7 +2,16 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Download, FileText, Briefcase, Receipt, ArrowRight, RotateCcw, Search, ReceiptIndianRupee } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Briefcase,
+  Receipt,
+  ArrowRight,
+  RotateCcw,
+  Search,
+  ReceiptIndianRupee,
+} from "lucide-react";
 import { DataTable } from "@/components/app/DataTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +43,10 @@ export const Route = createFileRoute("/_authenticated/outstanding")({
   head: () => ({
     meta: [
       { title: "Outstanding — AJ's Chartered Desk" },
-      { name: "description", content: "Receivables outstanding across invoices, completed jobs, and client expenses." },
+      {
+        name: "description",
+        content: "Receivables outstanding across invoices, completed jobs, and client expenses.",
+      },
     ],
   }),
   component: OutstandingPage,
@@ -69,7 +81,9 @@ function OutstandingPage() {
     i.invoice_items
       ?.map((x) => x.jobs?.services?.name)
       .filter(Boolean)
-      .join(", ") || i.service_name || i.description;
+      .join(", ") ||
+    i.service_name ||
+    i.description;
 
   const rows = all.filter(
     (i) =>
@@ -80,18 +94,22 @@ function OutstandingPage() {
         i.invoice_items?.some((x) => x.jobs?.service_id === fl.service)) &&
       (!fl.staff || i.clients?.assigned_staff === fl.staff || i.assigned_staff === fl.staff) &&
       (!fl.bucket || ageingBucket(i.due_date) === fl.bucket) &&
-      (!fl.status || (i.type === "invoice" ? invoiceDisplayStatus(i) === fl.status : i.status === fl.status)) &&
+      (!fl.status ||
+        (i.type === "invoice" ? invoiceDisplayStatus(i) === fl.status : i.status === fl.status)) &&
       (!fl.from || (i.date || i.invoice_date) >= fl.from) &&
       (!fl.to || (i.date || i.invoice_date) <= fl.to),
   );
 
-  const clients = [...new Map(all.map((i) => [i.client_id, i.client_name || i.clients?.name])).entries()];
+  const clients = [
+    ...new Map(all.map((i) => [i.client_id, i.client_name || i.clients?.name])).entries(),
+  ];
   const services = [
     ...new Map(
       all
         .flatMap((i) => [
           [i.service_id, i.service_name] as const,
-          ...(i.invoice_items?.map((x) => [x.jobs?.service_id, x.jobs?.services?.name] as const) ?? []),
+          ...(i.invoice_items?.map((x) => [x.jobs?.service_id, x.jobs?.services?.name] as const) ??
+            []),
         ])
         .filter(([k, n]) => k && n),
     ).entries(),
@@ -224,7 +242,14 @@ function OutstandingPage() {
         onToChange={(val) => setFl((p) => ({ ...p, to: val }))}
         label="Date"
       />
-      {(fl.type || fl.client || fl.service || fl.staff || fl.bucket || fl.status || fl.from || fl.to) && (
+      {(fl.type ||
+        fl.client ||
+        fl.service ||
+        fl.staff ||
+        fl.bucket ||
+        fl.status ||
+        fl.from ||
+        fl.to) && (
         <Button
           type="button"
           variant="ghost"
@@ -318,7 +343,7 @@ function OutstandingPage() {
         <StatCard
           label="Total Items"
           value={rows.length}
-          help={`${invCount} Invoices • ${jobCount} Completed Jobs • ${expCount} Expenses`}
+          hint={`${invCount} Invoices • ${jobCount} Completed Jobs • ${expCount} Expenses`}
         />
         <StatCard label="Original Amount" value={inr(sum("total"))} />
         <StatCard label="Paid / Cleared" value={inr(sum("amount_paid"))} tone="success" />
@@ -396,7 +421,9 @@ function OutstandingPage() {
           rows={rows}
           loading={q.isLoading}
           empty="Nothing outstanding."
-          search={(i) => `${i.reference_no} ${i.client_name || i.clients?.name} ${i.service_name} ${i.description}`}
+          search={(i) =>
+            `${i.reference_no} ${i.client_name || i.clients?.name} ${i.service_name} ${i.description}`
+          }
           exportFilename="outstanding_receivables"
           exportTransform={(i) => ({
             Type: label(i.type),
@@ -482,10 +509,7 @@ function OutstandingPage() {
                   );
                 }
                 return (
-                  <Link
-                    to="/expenses"
-                    className="font-mono text-xs text-amber-600 hover:underline"
-                  >
+                  <Link to="/expenses" className="font-mono text-xs text-amber-600 hover:underline">
                     {i.reference_no}
                   </Link>
                 );
@@ -528,9 +552,7 @@ function OutstandingPage() {
               key: "s",
               header: "Status",
               render: (i) => (
-                <StatusBadge
-                  status={i.type === "invoice" ? invoiceDisplayStatus(i) : i.status}
-                />
+                <StatusBadge status={i.type === "invoice" ? invoiceDisplayStatus(i) : i.status} />
               ),
             },
             {
@@ -647,11 +669,15 @@ function OutstandingPage() {
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Paid</div>
-                      <span className="text-success font-medium text-xs tabular-nums">{inr(c.paid)}</span>
+                      <span className="text-success font-medium text-xs tabular-nums">
+                        {inr(c.paid)}
+                      </span>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Outstanding</div>
-                      <b className="text-destructive font-semibold text-xs tabular-nums">{inr(c.out)}</b>
+                      <b className="text-destructive font-semibold text-xs tabular-nums">
+                        {inr(c.out)}
+                      </b>
                     </div>
                   </div>
 
@@ -662,7 +688,9 @@ function OutstandingPage() {
                         <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
                           <Receipt className="h-3 w-3" /> Invoices Outstanding
                         </span>
-                        <span className="tabular-nums font-medium text-foreground">{inr(c.invoicesOut)}</span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {inr(c.invoicesOut)}
+                        </span>
                       </div>
                     )}
                     {c.jobsOut > 0 && (
@@ -670,7 +698,9 @@ function OutstandingPage() {
                         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                           <Briefcase className="h-3 w-3" /> Completed Jobs Unbilled
                         </span>
-                        <span className="tabular-nums font-medium text-foreground">{inr(c.jobsOut)}</span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {inr(c.jobsOut)}
+                        </span>
                       </div>
                     )}
                     {c.expensesOut > 0 && (
@@ -678,7 +708,9 @@ function OutstandingPage() {
                         <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
                           <FileText className="h-3 w-3" /> Client Expenses
                         </span>
-                        <span className="tabular-nums font-medium text-foreground">{inr(c.expensesOut)}</span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {inr(c.expensesOut)}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -693,7 +725,9 @@ function OutstandingPage() {
                         .slice(0, 3)
                         .map(([k, v]) => (
                           <div key={k} className="flex justify-between">
-                            <span className="text-muted-foreground truncate max-w-[180px]">{k}</span>
+                            <span className="text-muted-foreground truncate max-w-[180px]">
+                              {k}
+                            </span>
                             <span className="tabular-nums font-medium">{inr(Math.round(v))}</span>
                           </div>
                         ))}

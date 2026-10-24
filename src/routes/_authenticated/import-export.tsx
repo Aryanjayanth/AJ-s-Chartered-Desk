@@ -18,6 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChipSelect, NativeSelect, NoAccess, PageHeader, StatCard } from "@/components/app/common";
+import { CompleteBackupButton } from "@/components/app/CompleteBackupButton";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useRoles } from "@/hooks/use-roles";
 import { ENTITIES, importableEntities, type Entity } from "@/lib/io/entities";
@@ -57,6 +58,14 @@ function ImportExportPage() {
       <PageHeader
         title="Import / Export"
         subtitle="Move data in and out of your practice in bulk."
+        actions={
+          <CompleteBackupButton
+            variant="outline"
+            size="sm"
+            className="border-border/80 font-medium text-xs h-8"
+            label="Complete Backup (Admin)"
+          />
+        }
       />
       <Tabs defaultValue="export">
         <TabsList>
@@ -135,6 +144,29 @@ function ExportPanel() {
 
   return (
     <div className="space-y-4">
+      {/* 1-Click Complete Backup for Admins */}
+      <Card className="border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-none">
+        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                Admin Exclusive
+              </span>
+              <h3 className="text-sm font-semibold text-foreground">Complete Practice Backup</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Download an all-inclusive Excel workbook with all modules: Clients, Services,
+              Recurring Schedules, Jobs, Invoices, Payments, Expenses, and Settings.
+            </p>
+          </div>
+          <CompleteBackupButton
+            variant="default"
+            className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+            label="Download Complete Backup"
+          />
+        </CardContent>
+      </Card>
+
       <Card className="shadow-none">
         <CardContent className="p-5">
           <div className="mb-4">

@@ -146,17 +146,50 @@ function RolesPage() {
             </tr>
           </thead>
           {MODULES.flatMap((m) => {
-            const rows = [{ key: m, label: MODULE_LABEL[m], blurb: MODULE_BLURB[m], tasks: false }];
+            const rows = [
+              {
+                key: m,
+                label: MODULE_LABEL[m],
+                blurb: MODULE_BLURB[m],
+                tasks: false,
+                subrow: false,
+              },
+            ];
             if (m === "jobs") {
-              rows.push({ key: "jobs" as Module, label: "Tasks", blurb: "Task list, expanded job items and status updates. Shares the Jobs permission.", tasks: true });
+              rows.push({
+                key: "jobs" as Module,
+                label: "Tasks",
+                blurb:
+                  "Task list, expanded job items and status updates. Shares the Jobs permission.",
+                tasks: true,
+                subrow: true,
+              });
+              rows.push({
+                key: "jobs" as Module,
+                label: "Deductions & TDS",
+                blurb:
+                  "Fee deductions, TDS withholdings, and commercial concessions. Shares the Jobs permission and amounts capability.",
+                tasks: false,
+                subrow: true,
+              });
             }
             return rows;
-          }).map(({ key: module, label, blurb, tasks }) => (
-            <tbody key={module} className="border-t">
+          }).map(({ key: module, label, blurb, tasks, subrow }) => (
+            <tbody key={`${module}-${label}`} className="border-t">
               <tr>
                 <td className="px-4 py-2">
-                  <div className="font-medium">{label}</div>
-                  <div className="text-xs text-muted-foreground">{blurb}</div>
+                  <div
+                    className={cn(
+                      "font-medium",
+                      subrow && "flex items-center gap-1.5 pl-4 text-xs font-semibold text-muted-foreground",
+                    )}
+                  >
+                    {subrow && <span className="h-1.5 w-1.5 rounded-full bg-primary/40" />}
+                    {label}
+                  </div>
+                  <div className={cn("text-xs text-muted-foreground", subrow && "pl-4 text-[11px]")}>
+                    {blurb}
+                  </div>
                 </td>
                 {EDITABLE_ROLES.map((role) => {
                   const g = matrix.data?.[role]?.[module];

@@ -56,6 +56,7 @@ function UsersPage() {
     queryKey: ["firm-invites", firm?.id],
     enabled: isManager && !!firm?.id,
     queryFn: async () => {
+      if (!firm?.id) return [];
       const { data, error } = await supabase
         .from("firm_invites")
         .select("*")

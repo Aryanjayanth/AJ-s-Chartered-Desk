@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app/AppSidebar";
 import { GlobalSearch } from "@/components/app/GlobalSearch";
 import { UserMenu } from "@/components/app/UserMenu";
 import { FirmSwitcher } from "@/components/app/FirmSwitcher";
+import { CompleteBackupButton } from "@/components/app/CompleteBackupButton";
 import { useCurrentFirm, useSuperAdmin } from "@/hooks/use-firm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useAdminPrivacy } from "@/hooks/use-admin-privacy";
@@ -63,6 +64,14 @@ function Layout() {
             {firm.data && !privacyMode && <GlobalSearch />}
             <div className="ml-auto flex items-center gap-2.5">
               {!privacyMode && firm.data && <FirmSwitcher />}
+              {!privacyMode && firm.data && (
+                <CompleteBackupButton
+                  variant="outline"
+                  size="sm"
+                  className="hidden sm:inline-flex text-xs h-8 px-2.5 font-medium border-border/80 hover:bg-muted"
+                  label="Complete Backup"
+                />
+              )}
               {isSuperAdmin && (
                 <button
                   type="button"

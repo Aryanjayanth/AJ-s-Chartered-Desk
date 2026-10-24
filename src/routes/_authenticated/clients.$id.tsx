@@ -563,10 +563,14 @@ function ClientProfile() {
                 header: "Billing",
                 className: "whitespace-nowrap min-w-[130px]",
                 render: (j) => {
-                  const invList = (j as any).invoices as Array<{ id: string; invoice_no: string; status: string }> | undefined;
+                  const invList = (j as any).invoices as
+                    Array<{ id: string; invoice_no: string; status: string }> | undefined;
                   if (invList && invList.length > 0) {
                     return (
-                      <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="flex flex-wrap items-center gap-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {invList.map((inv) => (
                           <Link
                             key={inv.id}
@@ -577,9 +581,7 @@ function ClientProfile() {
                           >
                             <StatusBadge
                               status={
-                                j.financial_status === "closed"
-                                  ? "paid"
-                                  : inv.status || "invoiced"
+                                j.financial_status === "closed" ? "paid" : inv.status || "invoiced"
                               }
                             />
                             <span className="font-mono text-[11px] text-primary underline underline-offset-2 group-hover:text-primary/80 whitespace-nowrap">
@@ -851,6 +853,22 @@ function LinkServiceDialog({
       return toast.error("Enter a valid fee");
     if (f.end_date && f.end_date < f.start_date)
       return toast.error("End date must be after start date");
+
+    // Prevent adding duplicate recurring service to the same client
+    const { data: existingCs } = await supabase
+      .from("client_services")
+      .select("id, status")
+      .eq("client_id", clientId)
+      .eq("service_id", f.service_id)
+      .neq("status", "stopped")
+      .maybeSingle();
+
+    if (existingCs) {
+      return toast.error(
+        "This recurring service is already assigned to this client. You cannot add the same recurring schedule twice.",
+      );
+    }
+
     const { error } = await supabase.from("client_services").insert({
       client_id: clientId,
       service_id: f.service_id,
@@ -948,7 +966,8 @@ function LinkServiceDialog({
             </NativeSelect>
           </Field>
           <div className="sm:col-span-2 rounded-md border p-2.5 bg-muted/20 text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are generated upon recording or clearing client payment against tasks.
+            <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are
+            generated upon recording or clearing client payment against tasks.
           </div>
           <Field label="Notes" className="sm:col-span-2">
             <Input value={f.notes} onChange={set("notes")} />

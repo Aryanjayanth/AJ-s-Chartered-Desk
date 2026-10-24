@@ -42,7 +42,13 @@ export const Route = createFileRoute("/_authenticated/invoices/new")({
  * guaranteed to pass -- and anything not listed is blocked at the database even
  * if someone reaches it by URL.
  */
-type Candidate = { job: JobWorkflow; jobCode: string; title: string; status: string; clientId?: string };
+type Candidate = {
+  job: JobWorkflow;
+  jobCode: string;
+  title: string;
+  status: string;
+  clientId?: string;
+};
 
 function NewInvoicePage() {
   const { isFinance, loading } = useRoles();
@@ -204,14 +210,15 @@ function NewInvoicePage() {
               <p className="text-sm text-muted-foreground">Checking job eligibility…</p>
             ) : eligible.length === 0 ? (
               <div className="rounded-lg border border-dashed p-8 text-center space-y-3">
-                <p className="text-sm font-semibold text-foreground">No squared-off jobs pending manual invoicing</p>
+                <p className="text-sm font-semibold text-foreground">
+                  No squared-off jobs pending manual invoicing
+                </p>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  Under practice workflow, invoices are generated automatically when payments are allocated or cleared against tasks.
+                  Under practice workflow, invoices are generated automatically when payments are
+                  allocated or cleared against tasks.
                 </p>
                 <Button size="sm" asChild variant="outline" className="gap-1.5">
-                  <Link to="/clearing">
-                    Go to Payment Clearing Desk
-                  </Link>
+                  <Link to="/clearing">Go to Payment Clearing Desk</Link>
                 </Button>
               </div>
             ) : (

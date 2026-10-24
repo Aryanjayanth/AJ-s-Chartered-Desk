@@ -83,7 +83,9 @@ function AdminPage() {
         </div>
         <h2 className="text-xl font-bold tracking-tight">Platform Super Admin Console</h2>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          The Firms Console is reserved for multi-firm Platform Super Administrators. To configure your firm's profile, GSTIN, PAN, bank accounts, and legal entities, please use <strong>Firm Settings</strong>.
+          The Firms Console is reserved for multi-firm Platform Super Administrators. To configure
+          your firm's profile, GSTIN, PAN, bank accounts, and legal entities, please use{" "}
+          <strong>Firm Settings</strong>.
         </p>
         <div className="flex items-center justify-center gap-3 pt-3">
           <Button asChild>

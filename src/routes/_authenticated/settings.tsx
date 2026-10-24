@@ -2,13 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Save } from "lucide-react";
+import { Building2, Save, Database, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Field, NoAccess, PageHeader } from "@/components/app/common";
+import { CompleteBackupButton } from "@/components/app/CompleteBackupButton";
+import { ClearDataDialog } from "@/components/app/ClearDataDialog";
 import { useRoles } from "@/hooks/use-roles";
 import { useCurrentFirm, useSuperAdmin } from "@/hooks/use-firm";
 import { AvatarPicker } from "@/components/app/EntityAvatar";
@@ -142,7 +144,7 @@ export function SettingsPage() {
         if (error) throw error;
       } else {
         const { error } = await supabase.from("settings").insert({
-          firm_id: firmId || null,
+          firm_id: firmId || undefined,
           firm_name: f.firm_name.trim(),
           address: f.address?.trim() || null,
           gstin: f.gstin?.toUpperCase().trim() || null,
@@ -183,6 +185,14 @@ export function SettingsPage() {
       <PageHeader
         title="Firm Settings"
         subtitle="Configure your firm's identity, contact information, tax registration, and billing details."
+        actions={
+          <CompleteBackupButton
+            variant="outline"
+            size="sm"
+            className="border-border/80 font-medium text-xs h-8"
+            label="Complete Backup"
+          />
+        }
       />
 
       <Card className="shadow-none border">
@@ -192,7 +202,8 @@ export function SettingsPage() {
             <CardTitle className="text-base font-semibold">Practice Identity & Profile</CardTitle>
           </div>
           <CardDescription className="text-xs">
-            Basic information about your practice. This is displayed on client invoices and receipts.
+            Basic information about your practice. This is displayed on client invoices and
+            receipts.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-5 space-y-4">
@@ -308,6 +319,54 @@ export function SettingsPage() {
           </Field>
         </CardContent>
       </Card>
+
+      {/* Complete Backup for Admins */}
+      <Card className="shadow-none border border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20">
+        <CardHeader className="pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Database className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                Firm Data Backup & Disaster Recovery
+              </CardTitle>
+              <CardDescription className="text-xs mt-1">
+                Download a complete, offline Excel backup containing all data in your practice
+                (Clients, Services, Retainers, Jobs, Invoices, Payments, Expenses, and Settings).
+              </CardDescription>
+            </div>
+            <CompleteBackupButton
+              variant="default"
+              className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+              label="Download Complete Backup"
+            />
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Danger Zone: Clear / Reset Test Data for Admins */}
+      {isManager && (
+        <Card className="shadow-none border border-destructive/30 bg-destructive/5">
+          <CardHeader className="pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  Danger Zone: Reset Practice Test Data
+                </CardTitle>
+                <CardDescription className="text-xs mt-1">
+                  Permanently purge all test clients, compliance jobs, invoices, payments, and settlements.
+                  Firm profile, team logins, roles, and master services are kept intact.
+                </CardDescription>
+              </div>
+              <ClearDataDialog
+                firmId={currentFirm?.id}
+                firmName={currentFirm?.name}
+                className="shrink-0"
+              />
+            </div>
+          </CardHeader>
+        </Card>
+      )}
 
       <div className="flex items-center justify-end pt-2 pb-6">
         <Button onClick={saveCurrentFirm} disabled={saving} className="px-6 gap-2">

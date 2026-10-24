@@ -48,10 +48,12 @@ import {
   NativeSelect,
   ClientSelect,
   DateRangePicker,
+  NoAccess,
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { DataTable } from "@/components/app/DataTable";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useRoles } from "@/hooks/use-roles";
 import { manualAllocatePayment, recordPaymentEntry } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 import {
@@ -68,7 +70,9 @@ import {
 
 export const Route = createFileRoute("/_authenticated/clearing")({
   ssr: false,
-  validateSearch: (s: Record<string, unknown>): { client?: string; payment?: string; job?: string } => ({
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { client?: string; payment?: string; job?: string } => ({
     client: typeof s.client === "string" ? s.client : undefined,
     payment: typeof s.payment === "string" ? s.payment : undefined,
     job: typeof s.job === "string" ? s.job : undefined,
@@ -155,6 +159,7 @@ const PAYMENT_MODES = [
 ];
 
 function ClearingDeskPage() {
+  const { isFinance, loading: rolesLoading } = useRoles();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const qc = useQueryClient();
@@ -194,6 +199,7 @@ function ClearingDeskPage() {
   // 1. Fetch All Payments (including linked job and cleared jobs from allocations)
   const paymentsQuery = useQuery({
     queryKey: ["clearing-payments-list"],
+    enabled: isFinance,
     queryFn: async (): Promise<PaymentRow[]> => {
       const { data, error } = await supabase
         .from("payments")
@@ -228,8 +234,14 @@ function ClearingDeskPage() {
           const linkedJob = inv?.jobs || (p.job_id && inv?.job_id === p.job_id ? p.jobs : null);
           clearedList.push({
             job_id: linkedJob?.id ?? inv?.job_id ?? p.job_id ?? undefined,
-            job_code: linkedJob?.job_code ?? p.jobs?.job_code ?? (inv?.invoice_no ? `Inv ${inv.invoice_no}` : "—"),
-            title: linkedJob?.title ?? p.jobs?.title ?? (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : "Compliance Settlement"),
+            job_code:
+              linkedJob?.job_code ??
+              p.jobs?.job_code ??
+              (inv?.invoice_no ? `Inv ${inv.invoice_no}` : "—"),
+            title:
+              linkedJob?.title ??
+              p.jobs?.title ??
+              (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : "Compliance Settlement"),
             allocated_amount: Number(pa.amount || 0),
             invoice_no: inv?.invoice_no ?? undefined,
           });
@@ -272,6 +284,7 @@ function ClearingDeskPage() {
   // 2. Fetch Jobs for clearing
   const jobsQuery = useQuery({
     queryKey: ["clearing-jobs-list"],
+    enabled: isFinance,
     queryFn: async (): Promise<ClientJob[]> => {
       const { data, error } = await supabase
         .from("jobs")
@@ -343,6 +356,7 @@ function ClearingDeskPage() {
   // 3. Fetch Reimbursable Expenses for clearing (both linked and unlinked to jobs)
   const expensesQuery = useQuery({
     queryKey: ["clearing-expenses-list"],
+    enabled: isFinance,
     queryFn: async (): Promise<ClientExpense[]> => {
       const { data, error } = await supabase
         .from("expenses")
@@ -430,7 +444,8 @@ function ClearingDeskPage() {
 
     const targetId = targetJobId || payment.job_id || search.job;
     const clientJobs = allJobs.filter(
-      (j) => j.client_id === payment.client_id && j.financial_status !== "closed" && j.net_amount > 0,
+      (j) =>
+        j.client_id === payment.client_id && j.financial_status !== "closed" && j.net_amount > 0,
     );
 
     if (targetId) {
@@ -472,12 +487,18 @@ function ClearingDeskPage() {
       if (targetJob) {
         const creditPayment = allPayments.find(
           (p) =>
-            (p.job_id === targetJob.id || (targetJob.client_id && p.client_id === targetJob.client_id)) &&
+            (p.job_id === targetJob.id ||
+              (targetJob.client_id && p.client_id === targetJob.client_id)) &&
             p.available_amount > 0,
         );
         if (creditPayment && (!allocatingPayment || allocatingPayment.id !== creditPayment.id)) {
           handleOpenAllocation(creditPayment, targetJob.id);
-        } else if (!creditPayment && targetJob.net_amount > 0 && !isRecordModalOpen && !allocatingPayment) {
+        } else if (
+          !creditPayment &&
+          targetJob.net_amount > 0 &&
+          !isRecordModalOpen &&
+          !allocatingPayment
+        ) {
           setRecordForm((prev) => {
             if (prev.jobId === targetJob.id && isRecordModalOpen) return prev;
             return {
@@ -493,6 +514,7 @@ function ClearingDeskPage() {
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.payment, search.job, search.client, allPayments.length, allJobs.length]);
 
   // Jobs needing payment for the selected client in the allocation workspace (ordered by job_code)
@@ -625,7 +647,7 @@ function ClearingDeskPage() {
   const cannotConfirm = isOverallocated || hasIndividualErrors;
   const firstErrorMessage = isOverallocated
     ? `Total allocation (${inr(currentLiveTotalAllocated)}) exceeds available payment (${inr(paymentAvailable)}) by ${inr(Math.abs(liveRemaining))}`
-    : individualErrors[0]?.message ?? "";
+    : (individualErrors[0]?.message ?? "");
 
   const hasJobAction = useMemo(() => {
     return Object.values(jobAllocations).some((j) => (j.amount || 0) > 0 || (j.discount || 0) > 0);
@@ -940,6 +962,17 @@ function ClearingDeskPage() {
     }
   };
 
+  // Guard: Payment clearing desk is strictly restricted to Finance / Admin
+  if (rolesLoading) return null;
+  if (!isFinance) {
+    return (
+      <div className="mx-auto max-w-7xl">
+        <PageHeader title="Payment Clearing" subtitle="Manual payment allocation and clearing" />
+        <NoAccess />
+      </div>
+    );
+  }
+
   // =========================================================================
   // VIEW 1: COMPLETE WINDOW PAYMENT ALLOCATION WORKSPACE
   // (Rendered in full page view, NOT a popup modal, with both Jobs & Expenses together)
@@ -989,7 +1022,9 @@ function ClearingDeskPage() {
                   {MODES[allocatingPayment.mode as keyof typeof MODES] ?? allocatingPayment.mode}
                 </span>
                 {allocatingPayment.narration ? ` · ${allocatingPayment.narration}` : ""}
-                {allocatingPayment.job_title ? ` · Created for: ${allocatingPayment.job_title}` : ""}
+                {allocatingPayment.job_title
+                  ? ` · Created for: ${allocatingPayment.job_title}`
+                  : ""}
               </div>
             </div>
           </div>
@@ -1131,7 +1166,8 @@ function ClearingDeskPage() {
           <div className="text-xs font-semibold text-destructive flex items-center gap-2 bg-destructive/10 border border-destructive/20 p-3 rounded-lg">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>
-              Allocation error: {firstErrorMessage}. Please correct the entered amounts or discounts to match the remaining dues.
+              Allocation error: {firstErrorMessage}. Please correct the entered amounts or discounts
+              to match the remaining dues.
             </span>
           </div>
         )}
@@ -1289,9 +1325,7 @@ function ClearingDeskPage() {
                               max={netDue}
                               step="any"
                               value={curAlloc}
-                              onChange={(e) =>
-                                handleJobAmountChange(job.id, e.target.value)
-                              }
+                              onChange={(e) => handleJobAmountChange(job.id, e.target.value)}
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 font-semibold transition-colors",
@@ -1315,7 +1349,9 @@ function ClearingDeskPage() {
                             <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
                               <div className="flex items-center gap-1.5">
                                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                <span>Allocation ({inr(curAllocNum)}) exceeds net due ({inr(netDue)})</span>
+                                <span>
+                                  Allocation ({inr(curAllocNum)}) exceeds net due ({inr(netDue)})
+                                </span>
                               </div>
                               <button
                                 type="button"
@@ -1355,9 +1391,7 @@ function ClearingDeskPage() {
                               max={job.net_amount}
                               step="any"
                               value={curDisc}
-                              onChange={(e) =>
-                                handleJobDiscountChange(job.id, e.target.value)
-                              }
+                              onChange={(e) => handleJobDiscountChange(job.id, e.target.value)}
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 transition-colors",
@@ -1381,11 +1415,16 @@ function ClearingDeskPage() {
                             <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
                               <div className="flex items-center gap-1.5">
                                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                <span>Discount ({inr(curDiscNum)}) exceeds remaining fee ({inr(job.net_amount)})</span>
+                                <span>
+                                  Discount ({inr(curDiscNum)}) exceeds remaining fee (
+                                  {inr(job.net_amount)})
+                                </span>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleJobDiscountChange(job.id, String(job.net_amount))}
+                                onClick={() =>
+                                  handleJobDiscountChange(job.id, String(job.net_amount))
+                                }
                                 className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
                               >
                                 Set to {inr(job.net_amount)}
@@ -1539,9 +1578,7 @@ function ClearingDeskPage() {
                               max={netExpDue}
                               step="any"
                               value={curExpAlloc}
-                              onChange={(e) =>
-                                handleExpenseAmountChange(exp.id, e.target.value)
-                              }
+                              onChange={(e) => handleExpenseAmountChange(exp.id, e.target.value)}
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 font-semibold transition-colors",
@@ -1565,7 +1602,10 @@ function ClearingDeskPage() {
                             <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
                               <div className="flex items-center gap-1.5">
                                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                <span>Reimbursement ({inr(curExpAllocNum)}) exceeds outlay due ({inr(netExpDue)})</span>
+                                <span>
+                                  Reimbursement ({inr(curExpAllocNum)}) exceeds outlay due (
+                                  {inr(netExpDue)})
+                                </span>
                               </div>
                               <button
                                 type="button"
@@ -1605,9 +1645,7 @@ function ClearingDeskPage() {
                               max={exp.amount}
                               step="any"
                               value={curExpDisc}
-                              onChange={(e) =>
-                                handleExpenseDiscountChange(exp.id, e.target.value)
-                              }
+                              onChange={(e) => handleExpenseDiscountChange(exp.id, e.target.value)}
                               placeholder="0.00"
                               className={cn(
                                 "font-mono text-xs h-9 pr-12 transition-colors",
@@ -1631,11 +1669,16 @@ function ClearingDeskPage() {
                             <div className="flex items-center justify-between gap-1 p-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-semibold mt-1.5 animate-in fade-in">
                               <div className="flex items-center gap-1.5">
                                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                                <span>Discount ({inr(curExpDiscNum)}) exceeds outlay amount ({inr(exp.amount)})</span>
+                                <span>
+                                  Discount ({inr(curExpDiscNum)}) exceeds outlay amount (
+                                  {inr(exp.amount)})
+                                </span>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleExpenseDiscountChange(exp.id, String(exp.amount))}
+                                onClick={() =>
+                                  handleExpenseDiscountChange(exp.id, String(exp.amount))
+                                }
                                 className="underline text-[10px] font-bold shrink-0 hover:opacity-80 cursor-pointer"
                               >
                                 Set to {inr(exp.amount)}
@@ -1865,7 +1908,8 @@ function ClearingDeskPage() {
                   id: "available" as const,
                   label: "Available to Allocate",
                   count: statusCounts.available,
-                  activeColor: "bg-background text-primary border-primary/30 shadow-md font-semibold",
+                  activeColor:
+                    "bg-background text-primary border-primary/30 shadow-md font-semibold",
                   activeDot: "bg-primary",
                   activeBadge: "bg-primary/10 text-primary font-bold",
                 },
@@ -1873,7 +1917,8 @@ function ClearingDeskPage() {
                   id: "partial" as const,
                   label: "Partially Allocated",
                   count: statusCounts.partial,
-                  activeColor: "bg-background text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-md font-semibold",
+                  activeColor:
+                    "bg-background text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-md font-semibold",
                   activeDot: "bg-amber-500",
                   activeBadge: "bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold",
                 },
@@ -1881,7 +1926,8 @@ function ClearingDeskPage() {
                   id: "cleared" as const,
                   label: "Fully Cleared",
                   count: statusCounts.cleared,
-                  activeColor: "bg-background text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-md font-semibold",
+                  activeColor:
+                    "bg-background text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-md font-semibold",
                   activeDot: "bg-emerald-500",
                   activeBadge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold",
                 },
@@ -1889,7 +1935,8 @@ function ClearingDeskPage() {
                   id: "all" as const,
                   label: "All",
                   count: statusCounts.all,
-                  activeColor: "bg-background text-foreground border-border shadow-md font-semibold",
+                  activeColor:
+                    "bg-background text-foreground border-border shadow-md font-semibold",
                   activeDot: "bg-foreground",
                   activeBadge: "bg-foreground/10 text-foreground font-bold",
                 },
@@ -1914,7 +1961,9 @@ function ClearingDeskPage() {
                     <span
                       className={cn(
                         "rounded-full px-1.5 py-0.2 text-[10px] font-mono transition-colors",
-                        isActive ? tab.activeBadge : "bg-muted text-muted-foreground/80 font-normal",
+                        isActive
+                          ? tab.activeBadge
+                          : "bg-muted text-muted-foreground/80 font-normal",
                       )}
                     >
                       {tab.count}
@@ -1984,10 +2033,7 @@ function ClearingDeskPage() {
             sort: (p) => p.client_name,
             render: (p) => (
               <div>
-                <div
-                  className="text-xs font-medium text-foreground truncate"
-                  title={p.client_name}
-                >
+                <div className="text-xs font-medium text-foreground truncate" title={p.client_name}>
                   {p.client_name}
                 </div>
                 {p.client_code && (
@@ -2304,17 +2350,22 @@ function ClearingDeskPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Payment Date</span>
-                  <span className="text-foreground">{fmtDate(viewingPaymentDetails.payment_date)}</span>
+                  <span className="text-foreground">
+                    {fmtDate(viewingPaymentDetails.payment_date)}
+                  </span>
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Payment Mode</span>
                   <span className="capitalize text-foreground font-medium">
-                    {MODES[viewingPaymentDetails.mode as keyof typeof MODES] ?? viewingPaymentDetails.mode}
+                    {MODES[viewingPaymentDetails.mode as keyof typeof MODES] ??
+                      viewingPaymentDetails.mode}
                   </span>
                 </div>
                 {viewingPaymentDetails.narration && (
                   <div className="col-span-2 pt-1 border-t border-border/50">
-                    <span className="text-muted-foreground block text-[11px]">Narration / Notes</span>
+                    <span className="text-muted-foreground block text-[11px]">
+                      Narration / Notes
+                    </span>
                     <span className="text-foreground text-[11px] italic">
                       {viewingPaymentDetails.narration}
                     </span>
@@ -2334,19 +2385,29 @@ function ClearingDeskPage() {
                   </span>
                 </div>
 
-                {viewingPaymentDetails.cleared_jobs && viewingPaymentDetails.cleared_jobs.length > 0 ? (
+                {viewingPaymentDetails.cleared_jobs &&
+                viewingPaymentDetails.cleared_jobs.length > 0 ? (
                   <div className="border rounded-lg divide-y bg-background max-h-56 overflow-y-auto">
                     {viewingPaymentDetails.cleared_jobs.map((cj, i) => (
-                      <div key={i} className="p-2.5 flex items-center justify-between text-xs hover:bg-muted/30">
+                      <div
+                        key={i}
+                        className="p-2.5 flex items-center justify-between text-xs hover:bg-muted/30"
+                      >
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-primary">{cj.job_code}</span>
                             {cj.invoice_no ? (
-                              <Badge variant="outline" className="font-mono text-[10px] text-primary bg-primary/5 border-primary/20">
+                              <Badge
+                                variant="outline"
+                                className="font-mono text-[10px] text-primary bg-primary/5 border-primary/20"
+                              >
                                 {cj.invoice_no}
                               </Badge>
                             ) : (
-                              <Badge variant="outline" className="text-[9px] py-0 px-1 text-muted-foreground font-normal">
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] py-0 px-1 text-muted-foreground font-normal"
+                              >
                                 Pre-invoice advance
                               </Badge>
                             )}
@@ -2366,7 +2427,8 @@ function ClearingDeskPage() {
                   </div>
                 ) : (
                   <div className="border rounded-lg p-3 text-center text-xs text-muted-foreground bg-muted/20">
-                    No individual jobs cleared yet. Entire amount is currently held as unallocated credit balance.
+                    No individual jobs cleared yet. Entire amount is currently held as unallocated
+                    credit balance.
                   </div>
                 )}
               </div>
@@ -2374,7 +2436,9 @@ function ClearingDeskPage() {
               {/* Credit Balance Card */}
               <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 text-xs">
                 <div>
-                  <span className="text-[11px] text-muted-foreground block">Remaining Available Balance</span>
+                  <span className="text-[11px] text-muted-foreground block">
+                    Remaining Available Balance
+                  </span>
                   <span className="text-[10px] text-muted-foreground">
                     {viewingPaymentDetails.available_amount > 0.01
                       ? "Available to allocate to other open jobs or expenses"
@@ -2411,11 +2475,7 @@ function ClearingDeskPage() {
                 Allocate Remaining Balance ({inr(viewingPaymentDetails.available_amount)})
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setViewingPaymentDetails(null)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setViewingPaymentDetails(null)}>
               Close
             </Button>
           </DialogFooter>

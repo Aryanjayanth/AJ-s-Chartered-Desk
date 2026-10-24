@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -87,7 +88,9 @@ function Dashboard() {
         supabase.from("jobs").select("id,status,due_date,created_at"),
         supabase
           .from("invoices")
-          .select("id,status,total,outstanding,due_date,invoice_date,created_at"),
+          .select(
+            "id,status,total,outstanding,due_date,invoice_date,created_at,jobs(status),invoice_items(jobs(status))",
+          ),
         supabase
           .from("payments")
           .select("id,amount,mode,status,allocated_amount,payment_date,created_at"),
@@ -138,6 +141,16 @@ function Dashboard() {
   const openInv = useMemo(() => {
     return allInvoices.filter((x) => {
       if (x.status === "cancelled" || x.status === "draft") return false;
+      const linkedJobStatuses = [
+        (x as any).jobs?.status,
+        ...((x as any).invoice_items || []).map((it: any) => it.jobs?.status),
+      ].filter(Boolean);
+      if (
+        linkedJobStatuses.length > 0 &&
+        linkedJobStatuses.some((st: string) => st !== "completed")
+      ) {
+        return false;
+      }
       if (cutoffDate) {
         const invDate = x.invoice_date || (x.created_at ? x.created_at.slice(0, 10) : "");
         if (invDate && invDate < cutoffDate) return false;
@@ -360,11 +373,7 @@ function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
                 <XAxis dataKey="formattedDate" fontSize={11} tickLine={false} />
-                <YAxis
-                  fontSize={11}
-                  tickFormatter={(v) => inrShort(v)}
-                  tickLine={false}
-                />
+                <YAxis fontSize={11} tickFormatter={(v) => inrShort(v)} tickLine={false} />
                 <Tooltip
                   formatter={(val: number, name: string) => [inr(val), name]}
                   labelFormatter={(l) => `Period: ${l}`}

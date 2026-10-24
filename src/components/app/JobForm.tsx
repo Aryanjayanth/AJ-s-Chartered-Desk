@@ -1,8 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, Briefcase, Building, Check, ChevronsUpDown, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Briefcase,
+  Building,
+  Check,
+  ChevronsUpDown,
+  RefreshCw,
+  AlertCircle,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +124,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
       if (prev.includes(trimmed)) return prev;
       const next = [...prev, trimmed];
       try {
-        localStorage.setItem(`ca_custom_companies_${currentFirm?.id || "global"}`, JSON.stringify(next));
+        localStorage.setItem(
+          `ca_custom_companies_${currentFirm?.id || "global"}`,
+          JSON.stringify(next),
+        );
       } catch (e) {
         console.warn("Could not save company to localStorage", e);
       }
@@ -137,7 +149,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
     }
 
     return {
-      firms: firmList.length > 0 ? firmList : currentFirm ? [{ id: currentFirm.id, name: currentFirm.name }] : [],
+      firms:
+        firmList.length > 0
+          ? firmList
+          : currentFirm
+            ? [{ id: currentFirm.id, name: currentFirm.name }]
+            : [],
       customs: Array.from(customList),
     };
   }, [userFirms, currentFirm, rememberedCompanies, pastCompaniesQuery.data]);
@@ -195,6 +212,52 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
   const selectedClient = clientDetailsQuery.data;
   const availableServices = useMemo(() => servicesQuery.data ?? [], [servicesQuery.data]);
   const clientServices = useMemo(() => clientServicesQuery.data ?? [], [clientServicesQuery.data]);
+
+  // Fetch existing recurring jobs for this client to prevent duplicate recurring job creation
+  const existingRecurringJobsQuery = useQuery({
+    queryKey: ["client-existing-recurring-jobs", clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("id, job_code, title, service_id, client_service_id, period_start")
+        .eq("client_id", clientId)
+        .not("period_start", "is", null);
+      if (error) return [];
+      return data ?? [];
+    },
+    enabled: Boolean(clientId),
+  });
+
+  const getDuplicateJob = useCallback(
+    (serviceId: string) => {
+      const svc = availableServices.find((s) => s.id === serviceId);
+      const isRecurring =
+        svc?.billing_type === "recurring" || (svc?.frequency && svc.frequency !== "one_time");
+      if (!isRecurring || !taskDate) return null;
+
+      const freq = svc?.frequency || "monthly";
+      const existingCs = clientServices.find((cs) => cs.service_id === serviceId);
+      const dueDays = existingCs?.due_days ?? 20;
+      const preview = firstDuePreview(taskDate, freq, dueDays);
+      const periodStart = preview?.periodStart ?? taskDate;
+      if (!periodStart) return null;
+
+      const existingList = existingRecurringJobsQuery.data ?? [];
+      return (
+        existingList.find(
+          (j) =>
+            (j.service_id === serviceId || (existingCs && j.client_service_id === existingCs.id)) &&
+            j.period_start === periodStart,
+        ) ?? null
+      );
+    },
+    [availableServices, clientServices, taskDate, existingRecurringJobsQuery.data],
+  );
+
+  const hasDuplicateRecurring = useMemo(() => {
+    return items.some((it) => Boolean(getDuplicateJob(it.service_id)));
+  }, [items, getDuplicateJob]);
 
   // Group services by type for quick organized selection (GST Registration -> GST, TDS/Tax Audit -> Income Tax)
   const serviceGroups = useMemo(() => {
@@ -341,6 +404,50 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
       }
     }
 
+    // Pre-flight check: Verify no duplicate recurring jobs exist for this client and cycle
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const svc = availableServices.find((s) => s.id === item.service_id);
+      const isRecurring =
+        svc?.billing_type === "recurring" || (svc?.frequency && svc.frequency !== "one_time");
+
+      if (isRecurring && svc) {
+        const freq = svc.frequency || "monthly";
+        const existingCs = clientServices.find((cs) => cs.service_id === item.service_id);
+        const dueDays = existingCs?.due_days ?? 20;
+        const preview = firstDuePreview(taskDate, freq, dueDays);
+        const periodStart = preview?.periodStart ?? taskDate;
+
+        if (periodStart) {
+          let checkQuery = supabase
+            .from("jobs")
+            .select("id, job_code, title, period_start")
+            .eq("client_id", clientId)
+            .eq("period_start", periodStart);
+
+          if (existingCs?.id) {
+            checkQuery = checkQuery.or(
+              `client_service_id.eq.${existingCs.id},service_id.eq.${item.service_id}`,
+            );
+          } else {
+            checkQuery = checkQuery.eq("service_id", item.service_id);
+          }
+
+          const { data: existingJobs } = await checkQuery.limit(1);
+
+          if (existingJobs && existingJobs.length > 0) {
+            const existing = existingJobs[0];
+            const cycleName = monthLabel(periodStart);
+            toast.error(
+              `Recurring job for "${item.service_name}" already exists for ${cycleName} (${existing.job_code || "Job #" + existing.id.slice(0, 8)}). You cannot add the same recurring job twice.`,
+              { duration: 6000 },
+            );
+            return;
+          }
+        }
+      }
+    }
+
     setSaving(true);
     try {
       const defaultStaff = selectedClient?.assigned_staff || null;
@@ -434,9 +541,10 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
       // Create 1 job per service ("1 service go to one job")
       const createdJobs: { id: string; fee: number; job_code: string; title: string }[] = [];
-      const submissionBatchId = itemConfigs.length > 1
-        ? `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
-        : `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const submissionBatchId =
+        itemConfigs.length > 1
+          ? `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+          : `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       let sharedJobCode: string | null = null;
 
       for (const config of itemConfigs) {
@@ -501,7 +609,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         };
         if (activeFirmId) jobToInsert.firm_id = activeFirmId;
 
-        // Check for existing recurring job to avoid duplicate constraint error
+        // Check for existing recurring job to prevent duplicate creation
         let currentJob: { id: string; fee: number; job_code: string } | null = null;
         if (csId && periodStart) {
           const { data: existingJob } = await supabase
@@ -512,41 +620,32 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             .maybeSingle();
 
           if (existingJob) {
-            const { data: updatedJob, error: updateErr } = await supabase
-              .from("jobs")
-              .update({
-                fee,
-                discount: Math.min(ded, fee),
-                notes: jobNotes,
-                due_date: dueDate || null,
-                auto_invoice: autoInvoice,
-                batch_id: submissionBatchId,
-                ...(sharedJobCode ? { job_code: sharedJobCode } : {}),
-              })
-              .eq("id", existingJob.id)
-              .select("id, fee, job_code")
-              .single();
-
-            if (updateErr) throw updateErr;
-            currentJob = updatedJob ?? existingJob;
-            if (!sharedJobCode && currentJob?.job_code) {
-              sharedJobCode = currentJob.job_code;
-            }
+            throw new Error(
+              `Recurring job for "${item.service_name}" already exists for ${monthLabel(periodStart)} (${existingJob.job_code}). You cannot add the same recurring job twice.`,
+            );
           }
         }
 
-        if (!currentJob) {
-          const { data: inserted, error: insertError } = await supabase
-            .from("jobs")
-            .insert([jobToInsert])
-            .select("id, fee, job_code")
-            .single();
+        const { data: inserted, error: insertError } = await supabase
+          .from("jobs")
+          .insert([jobToInsert])
+          .select("id, fee, job_code")
+          .single();
 
-          if (insertError) throw insertError;
-          currentJob = inserted;
-          if (!sharedJobCode && currentJob?.job_code) {
-            sharedJobCode = currentJob.job_code;
+        if (insertError) {
+          if (
+            insertError.code === "23505" ||
+            insertError.message?.includes("jobs_recurring_unique")
+          ) {
+            throw new Error(
+              `Recurring job for "${item.service_name}" already exists for this cycle. Duplicate recurring jobs are not allowed.`,
+            );
           }
+          throw insertError;
+        }
+        currentJob = inserted;
+        if (!sharedJobCode && currentJob?.job_code) {
+          sharedJobCode = currentJob.job_code;
         }
 
         // Save clearing record and record advance payment if entered
@@ -564,6 +663,18 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
               });
             } catch (clearingErr) {
               console.warn("Could not save initial clearing for job", currentJob.id, clearingErr);
+            }
+
+            try {
+              await supabase.from("discounts").insert({
+                job_id: currentJob.id,
+                original_amount: fee,
+                discount_amount: ded,
+                net_amount: Math.max(0, fee - ded),
+                reason: "Initial deductions on job creation",
+              });
+            } catch (discErr) {
+              console.warn("Could not log discounts table record", discErr);
             }
           }
 
@@ -647,6 +758,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
       qc.invalidateQueries({ queryKey: ["payments"] });
       qc.invalidateQueries({ queryKey: ["completed-jobs-clearing"] });
       qc.invalidateQueries({ queryKey: ["clearing-v2-data"] });
+      qc.invalidateQueries({ queryKey: ["deductions"] });
       onOpenChange(false);
     } catch (err) {
       toast.error(errMsg(err));
@@ -675,12 +787,22 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving}>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || hasDuplicateRecurring}
+            className={cn(
+              hasDuplicateRecurring &&
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90 opacity-90",
+            )}
+          >
             {saving
               ? "Creating..."
-              : items.length > 1
-                ? `Create Job (${items.length} Services · ${inr(subtotal)})`
-                : "Create Job"}
+              : hasDuplicateRecurring
+                ? "Cannot Add Duplicate Recurring Job"
+                : items.length > 1
+                  ? `Create Job (${items.length} Services · ${inr(subtotal)})`
+                  : "Create Job"}
           </Button>
         </div>
       }
@@ -932,6 +1054,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                       <CommandGroup key={groupName} heading={groupName}>
                         {groupSvcs.map((svc) => {
                           const isSelected = selectedServiceIds.has(svc.id);
+                          const dupJob = getDuplicateJob(svc.id);
                           return (
                             <CommandItem
                               key={svc.id}
@@ -952,6 +1075,11 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                                 </div>
                                 <span className={cn(isSelected && "font-medium")}>{svc.name}</span>
                               </div>
+                              {dupJob && (
+                                <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded font-medium">
+                                  Existing ({dupJob.job_code || "Job exists"})
+                                </span>
+                              )}
                             </CommandItem>
                           );
                         })}
@@ -990,13 +1118,25 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           </div>
 
           {/* Recurring Compliance Notice */}
-          {hasRecurringSelected && (
+          {hasRecurringSelected && !hasDuplicateRecurring && (
             <div className="flex items-start gap-2.5 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-muted-foreground">
               <RefreshCw className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-foreground">Recurring Compliance Work:</span>{" "}
                 Creating this job will automatically register the client retainer schedule and
                 generate recurring cycle jobs without duplicates.
+              </div>
+            </div>
+          )}
+
+          {/* Duplicate Recurring Job Warning Alert */}
+          {hasDuplicateRecurring && (
+            <div className="flex items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+              <div>
+                <span className="font-semibold">Duplicate Recurring Job Detected:</span> One or more
+                selected services already have an active recurring job for this cycle. You cannot
+                create the same recurring job twice.
               </div>
             </div>
           )}
@@ -1033,11 +1173,15 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                       const advNum = Number(item.advance) || 0;
                       const dedNum = Number(item.deductions) || 0;
                       const rowNet = Math.max(0, feeNum - advNum - dedNum);
+                      const dupJob = getDuplicateJob(item.service_id);
 
                       return (
                         <tr
                           key={item.service_id}
-                          className="hover:bg-muted/20 transition-colors group"
+                          className={cn(
+                            "hover:bg-muted/20 transition-colors group",
+                            dupJob && "bg-destructive/5 hover:bg-destructive/10",
+                          )}
                         >
                           <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">
                             {idx + 1}
@@ -1045,7 +1189,12 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
                           <td className="py-2.5 px-4">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="font-semibold text-foreground text-sm">
+                              <span
+                                className={cn(
+                                  "font-semibold text-sm",
+                                  dupJob ? "text-destructive" : "text-foreground",
+                                )}
+                              >
                                 {item.service_name}
                               </span>
                               {(() => {
@@ -1065,11 +1214,24 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                                   </span>
                                 );
                               })()}
+                              {dupJob && (
+                                <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  Already Exists ({dupJob.job_code || "Active"})
+                                </span>
+                              )}
                             </div>
                             {item.service_type && (
                               <span className="inline-block rounded bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground font-medium mt-0.5">
                                 {item.service_type}
                               </span>
+                            )}
+                            {dupJob && (
+                              <p className="mt-1 text-[11px] font-semibold text-destructive flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                Recurring job for this cycle already exists ({dupJob.job_code}). You
+                                cannot create duplicate recurring jobs.
+                              </p>
                             )}
                           </td>
 
@@ -1266,7 +1428,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
             </Field>
 
             <div className="rounded-lg border p-3 bg-muted/20 text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are generated automatically when client payments are allocated to tasks.
+              <span className="font-semibold text-foreground">Invoicing Policy:</span> Invoices are
+              generated automatically when client payments are allocated to tasks.
             </div>
           </div>
         </section>

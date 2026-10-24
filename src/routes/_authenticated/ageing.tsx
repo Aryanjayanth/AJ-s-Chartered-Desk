@@ -12,7 +12,11 @@ export const Route = createFileRoute("/_authenticated/ageing")({
   head: () => ({
     meta: [
       { title: "Ageing — AJ's Chartered Desk" },
-      { name: "description", content: "Receivables ageing analysis across invoices, completed jobs, and client expenses." },
+      {
+        name: "description",
+        content:
+          "Receivables ageing analysis across invoices, completed jobs, and client expenses.",
+      },
     ],
   }),
   component: AgeingPage,
@@ -81,9 +85,13 @@ function AgeingPage() {
 
   const grand = Object.values(totals).reduce((a, b) => a + b, 0);
 
-  const totalInv = allOpen.filter((i) => i.type === "invoice").reduce((a, b) => a + b.outstanding, 0);
+  const totalInv = allOpen
+    .filter((i) => i.type === "invoice")
+    .reduce((a, b) => a + b.outstanding, 0);
   const totalJobs = allOpen.filter((i) => i.type === "job").reduce((a, b) => a + b.outstanding, 0);
-  const totalExp = allOpen.filter((i) => i.type === "expense").reduce((a, b) => a + b.outstanding, 0);
+  const totalExp = allOpen
+    .filter((i) => i.type === "expense")
+    .reduce((a, b) => a + b.outstanding, 0);
 
   return (
     <div>
@@ -240,9 +248,21 @@ function AgeingPage() {
                     {c.name}
                   </Link>
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
-                    {c.invTotal > 0 && <span className="text-blue-600 dark:text-blue-400">Inv: {inr(c.invTotal)}</span>}
-                    {c.jobTotal > 0 && <span className="text-emerald-600 dark:text-emerald-400">Jobs: {inr(c.jobTotal)}</span>}
-                    {c.expTotal > 0 && <span className="text-amber-600 dark:text-amber-400">Exp: {inr(c.expTotal)}</span>}
+                    {c.invTotal > 0 && (
+                      <span className="text-blue-600 dark:text-blue-400">
+                        Inv: {inr(c.invTotal)}
+                      </span>
+                    )}
+                    {c.jobTotal > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        Jobs: {inr(c.jobTotal)}
+                      </span>
+                    )}
+                    {c.expTotal > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        Exp: {inr(c.expTotal)}
+                      </span>
+                    )}
                   </div>
                 </td>
                 {BUCKETS.map((b) => (

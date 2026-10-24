@@ -104,7 +104,14 @@ export function fallbackGrants(roles: readonly string[]): GrantsByModule {
         amounts: true,
       };
     } else if (roles.includes("staff")) {
-      out[m] = { view: true, create: false, edit: m === "jobs", update: m === "jobs", delete: false, amounts: false };
+      out[m] = {
+        view: true,
+        create: false,
+        edit: m === "jobs",
+        update: m === "jobs",
+        delete: false,
+        amounts: false,
+      };
     } else if (roles.includes("cashier")) {
       const pay = m === "payments";
       out[m] = { view: pay, create: pay, edit: false, update: false, delete: false, amounts: pay };

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -43,7 +44,7 @@ export function useReceivables(enabled: boolean) {
       const invPromise = supabase
         .from("invoices")
         .select(
-          "*, clients(id,name,assigned_staff), invoice_items(amount, description, jobs(job_code, service_id, services(name)))",
+          "*, clients(id,name,assigned_staff), jobs(id,job_code,status), invoice_items(amount, description, jobs(job_code, status, service_id, services(name)))",
         )
         .in("status", ["unpaid", "partially_paid", "paid"])
         .order("due_date");
@@ -66,11 +67,7 @@ export function useReceivables(enabled: boolean) {
         .not("client_id", "is", null)
         .order("expense_date", { ascending: false });
 
-      const [invRes, jobsRes, expRes] = await Promise.all([
-        invPromise,
-        jobsPromise,
-        expPromise,
-      ]);
+      const [invRes, jobsRes, expRes] = await Promise.all([invPromise, jobsPromise, expPromise]);
 
       if (invRes.error) throw invRes.error;
       if (jobsRes.error) throw jobsRes.error;
@@ -82,6 +79,16 @@ export function useReceivables(enabled: boolean) {
       for (const inv of invRes.data ?? []) {
         const out = Number(inv.outstanding ?? 0);
         if (out <= 0) continue;
+
+        // An invoice linked to job(s) should strictly only come to outstanding if the job is completed/done
+        const linkedJobStatuses = [
+          (inv as any).jobs?.status,
+          ...((inv.invoice_items as any[]) || []).map((x: any) => x.jobs?.status),
+        ].filter(Boolean);
+
+        if (linkedJobStatuses.length > 0 && linkedJobStatuses.some((st) => st !== "completed")) {
+          continue;
+        }
 
         const svcName =
           inv.invoice_items
@@ -143,7 +150,9 @@ export function useReceivables(enabled: boolean) {
         if (netOwed <= 0) continue;
 
         const svcName = (j as any).services?.name ?? j.title ?? "Job";
-        const jobDate = j.created_at ? j.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
+        const jobDate = j.created_at
+          ? j.created_at.slice(0, 10)
+          : new Date().toISOString().slice(0, 10);
         const jobDueDate = j.due_date ?? jobDate;
 
         items.push({
@@ -191,7 +200,9 @@ export function useReceivables(enabled: boolean) {
         const amt = Number(e.amount || 0);
         if (amt <= 0) continue;
 
-        const expDate = e.expense_date ?? (e.created_at ? e.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10));
+        const expDate =
+          e.expense_date ??
+          (e.created_at ? e.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10));
         const svcName = (e as any).jobs?.services?.name
           ? `${(e as any).jobs.services.name} (${e.category})`
           : e.category || "Reimbursement";

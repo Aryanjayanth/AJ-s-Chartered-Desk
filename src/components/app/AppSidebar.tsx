@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ArrowLeftRight,
   Layers,
+  BadgePercent,
 } from "lucide-react";
 import {
   Sidebar,
@@ -74,6 +75,7 @@ const groups: { label: string; items: Item[]; open?: boolean }[] = [
     items: [
       { title: "Payment Entry", url: "/payments", icon: Wallet, module: "payments" },
       { title: "Payment Clearing", url: "/clearing", icon: Layers, roles: M },
+      { title: "Deductions & TDS", url: "/deductions", icon: BadgePercent, module: "jobs" },
       { title: "Unallocated", url: "/unallocated", icon: CircleDollarSign, roles: M },
       { title: "Invoices", url: "/invoices", icon: FileText, roles: M },
     ],
@@ -129,7 +131,11 @@ export function AppSidebar() {
             {!isPlatformMode && firm?.logo_url ? (
               <img src={firm.logo_url} alt={firm.name} className="h-full w-full object-contain" />
             ) : (
-              <img src="/logo.png" alt="AJ's Chartered Desk" className="h-8 w-8 object-contain mix-blend-screen" />
+              <img
+                src="/logo.png"
+                alt="AJ's Chartered Desk"
+                className="h-8 w-8 object-contain mix-blend-screen"
+              />
             )}
           </div>
           {!collapsed && (
