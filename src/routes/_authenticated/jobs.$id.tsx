@@ -479,32 +479,62 @@ function JobDetail() {
               )}
 
               {isFinance && !hasInvoices && wf.data && (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-semibold text-foreground">
-                      Awaiting payment clearing to generate invoice
+                job.status === "completed" ? (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-semibold text-foreground">
+                        Awaiting payment clearing to generate invoice
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Invoices are strictly generated upon recording or clearing a payment against
+                        this task.
+                      </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Invoices are strictly generated upon recording or clearing a payment against
-                      this task.
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          navigate({
+                            to: "/clearing",
+                            search: { client: job.client_id, job: id },
+                          })
+                        }
+                        className="gap-1.5 shadow-xs"
+                      >
+                        <Receipt className="h-4 w-4" />
+                        Record / Clear Payment
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        navigate({
-                          to: "/clearing",
-                          search: { client: job.client_id, job: id },
-                        })
-                      }
-                      className="gap-1.5 shadow-xs"
-                    >
-                      <Receipt className="h-4 w-4" />
-                      Record / Clear Payment
-                    </Button>
+                ) : (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border/70 bg-muted/10 p-3">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-amber-500" />
+                        Task In Progress — Mark as Done to Enable Payment Clearing
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Payment clearing and invoice generation are strictly unlocked once the task is marked as Done. You can record advance deposits anytime.
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          navigate({
+                            to: "/payments",
+                            search: { client: job.client_id, job: id },
+                          })
+                        }
+                        className="gap-1.5 shadow-xs text-xs cursor-pointer"
+                      >
+                        <Receipt className="h-3.5 w-3.5" />
+                        Record Advance Payment
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )
               )}
 
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">

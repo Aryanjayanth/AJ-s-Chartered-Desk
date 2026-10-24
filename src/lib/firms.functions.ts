@@ -933,7 +933,7 @@ export const recordPaymentEntry = createServerFn({ method: "POST" })
             gross_fee: curFee,
             discount: curDisc,
             final_amount: Math.max(0, curFee - curDisc - newTotalAdvance),
-            status: isSquaredOff ? "squared_off" : "advance_received",
+            status: isSquaredOff ? "squared_off" : "draft",
             squared_off_at: isSquaredOff ? new Date().toISOString() : null,
             squared_off_by: isSquaredOff ? context.userId : null,
             notes: `Advance payment ${pay.payment_code} recorded against job`,

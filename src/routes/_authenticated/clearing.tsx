@@ -195,6 +195,7 @@ function ClearingDeskPage() {
     Record<string, { amount: number; discount: number }>
   >({});
   const [isAllocating, setIsAllocating] = useState(false);
+  const [showPendingTasks, setShowPendingTasks] = useState(false);
 
   // 1. Fetch All Payments (including linked job and cleared jobs from allocations)
   const paymentsQuery = useQuery({
@@ -289,7 +290,7 @@ function ClearingDeskPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status)",
+          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, discount, final_amount, status), payments(id, amount, status)",
         )
         .order("job_code", { ascending: true });
 
@@ -302,6 +303,13 @@ function ClearingDeskPage() {
 
         const clearingRec = Array.isArray(j.job_clearing) ? j.job_clearing[0] : j.job_clearing;
         const initialAdvance = Number(clearingRec?.advance || 0);
+
+        // Sum direct advance payments recorded against this job
+        const directAdvance = ((j.payments as any[]) ?? [])
+          .filter((p: any) => p && p.status !== "reversed")
+          .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+        const totalAdvance = Math.max(initialAdvance, directAdvance);
 
         const activeInvs = ((j.invoice_items as any[]) ?? [])
           .map((it: any) => it.invoices)
@@ -325,10 +333,10 @@ function ClearingDeskPage() {
         );
 
         // Effective prior paid amount (from invoice allocations or initial advance)
-        const totalPriorPaid = hasInvoice ? invPaid : initialAdvance;
+        const totalPriorPaid = hasInvoice ? invPaid : totalAdvance;
 
         // If invoiced, the net due to be cleared is the actual unpaid invoice outstanding; otherwise deduct initial advance
-        const netDue = hasInvoice ? invOutstanding : Math.max(0, baseNet - initialAdvance);
+        const netDue = hasInvoice ? invOutstanding : Math.max(0, baseNet - totalAdvance);
 
         return {
           id: j.id,
@@ -443,10 +451,13 @@ function ClearingDeskPage() {
     const initialJobAllocs: Record<string, { amount: number; discount: number }> = {};
 
     const targetId = targetJobId || payment.job_id || search.job;
-    const clientJobs = allJobs.filter(
-      (j) =>
-        j.client_id === payment.client_id && j.financial_status !== "closed" && j.net_amount > 0,
-    );
+    const clientJobs = allJobs.filter((j) => {
+      if (j.client_id !== payment.client_id) return false;
+      if (j.financial_status === "closed") return false;
+      if (j.net_amount <= 0) return false;
+      if (!showPendingTasks && j.status !== "completed" && !j.invoice_id) return false;
+      return true;
+    });
 
     if (targetId) {
       const targetJob = clientJobs.find((j) => j.id === targetId);
@@ -485,6 +496,9 @@ function ClearingDeskPage() {
     } else if (search.job && allJobs.length > 0) {
       const targetJob = allJobs.find((j) => j.id === search.job);
       if (targetJob) {
+        if (targetJob.status !== "completed" && !targetJob.invoice_id) {
+          setShowPendingTasks(true);
+        }
         const creditPayment = allPayments.find(
           (p) =>
             (p.job_id === targetJob.id ||
@@ -521,15 +535,28 @@ function ClearingDeskPage() {
   const clientJobsToPay = useMemo(() => {
     if (!allocatingPayment) return [];
     return allJobs
-      .filter(
-        (j) =>
-          j.client_id === allocatingPayment.client_id &&
-          j.financial_status !== "closed" &&
-          j.net_amount > 0,
-      )
+      .filter((j) => {
+        if (j.client_id !== allocatingPayment.client_id) return false;
+        if (j.financial_status === "closed") return false;
+        if (j.net_amount <= 0) return false;
+        if (!showPendingTasks && j.status !== "completed" && !j.invoice_id) return false;
+        return true;
+      })
       .sort((a, b) =>
         (a.job_code ?? "").localeCompare(b.job_code ?? "", undefined, { numeric: true }),
       );
+  }, [allocatingPayment, allJobs, showPendingTasks]);
+
+  const pendingJobsCount = useMemo(() => {
+    if (!allocatingPayment) return 0;
+    return allJobs.filter(
+      (j) =>
+        j.client_id === allocatingPayment.client_id &&
+        j.financial_status !== "closed" &&
+        j.net_amount > 0 &&
+        j.status !== "completed" &&
+        !j.invoice_id,
+    ).length;
   }, [allocatingPayment, allJobs]);
 
   // Expenses needing payment for the selected client in the allocation workspace
@@ -1203,6 +1230,28 @@ function ClearingDeskPage() {
               </div>
             </div>
 
+            {pendingJobsCount > 0 && (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border/50 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span>
+                    {showPendingTasks
+                      ? `Showing ${pendingJobsCount} pending/in-progress task${pendingJobsCount > 1 ? "s" : ""}. Complete tasks to finalize invoices.`
+                      : `${pendingJobsCount} pending task${pendingJobsCount > 1 ? "s" : ""} hidden from payment clearing (complete tasks before clearing).`}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[11px] px-2 cursor-pointer"
+                  onClick={() => setShowPendingTasks((prev) => !prev)}
+                >
+                  {showPendingTasks ? "Hide Pending Tasks" : `Show ${pendingJobsCount} Pending Tasks`}
+                </Button>
+              </div>
+            )}
+
             {clientJobsToPay.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
                 No open or unbilled jobs found for this client.
@@ -1272,8 +1321,9 @@ function ClearingDeskPage() {
                           )}
                           {job.paid_amount > 0 && (
                             <div className="text-[10px] text-blue-600 font-mono">
-                              Prior Paid: -{inr(job.paid_amount)}
-                              {job.invoice_no ? ` (${job.invoice_no})` : ""}
+                              {job.invoice_no
+                                ? `Prior Paid: -${inr(job.paid_amount)} (${job.invoice_no})`
+                                : `Advance Paid: -${inr(job.paid_amount)}`}
                             </div>
                           )}
                           <div className="text-sm font-mono font-bold text-primary mt-0.5">

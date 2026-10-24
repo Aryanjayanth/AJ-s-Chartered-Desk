@@ -36,6 +36,10 @@ import { downloadCsv, errMsg, fmtDate, fmtDateTime, inr, MODES, today } from "@/
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/payments")({
+  validateSearch: (s: Record<string, unknown>): { client?: string; job?: string } => ({
+    client: typeof s.client === "string" ? s.client : undefined,
+    job: typeof s.job === "string" ? s.job : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Payments — AJ's Chartered Desk" },
@@ -75,9 +79,19 @@ function PaymentsPage() {
     to: "",
   });
 
+  const search = Route.useSearch();
+
   // Payment Form state
-  const [payClientId, setPayClientId] = useState("");
-  const [payForm, setPayForm] = useState(emptyPayment);
+  const [payClientId, setPayClientId] = useState(search.client ?? "");
+  const [payForm, setPayForm] = useState(() => ({
+    ...emptyPayment,
+    job_id: search.job ?? "",
+  }));
+
+  useEffect(() => {
+    if (search.client) setPayClientId(search.client);
+    if (search.job) setPayForm((prev) => ({ ...prev, job_id: search.job! }));
+  }, [search.client, search.job]);
   const [payBusy, setPayBusy] = useState(false);
   const [rev, setRev] = useState<string | null>(null);
 
