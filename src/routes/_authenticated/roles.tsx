@@ -151,8 +151,6 @@ function RolesPage() {
                 key: m,
                 label: MODULE_LABEL[m],
                 blurb: MODULE_BLURB[m],
-                tasks: false,
-                subrow: false,
               },
             ];
             if (m === "jobs") {
@@ -161,33 +159,23 @@ function RolesPage() {
                 label: "Tasks",
                 blurb:
                   "Task list, expanded job items and status updates. Shares the Jobs permission.",
-                tasks: true,
-                subrow: true,
               });
               rows.push({
                 key: "jobs" as Module,
                 label: "Deductions & TDS",
                 blurb:
                   "Fee deductions, TDS withholdings, and commercial concessions. Shares the Jobs permission and amounts capability.",
-                tasks: false,
-                subrow: true,
               });
             }
             return rows;
-          }).map(({ key: module, label, blurb, tasks, subrow }) => (
+          }).map(({ key: module, label, blurb }) => (
             <tbody key={`${module}-${label}`} className="border-t">
               <tr>
-                <td className="px-4 py-2">
-                  <div
-                    className={cn(
-                      "font-medium",
-                      subrow && "flex items-center gap-1.5 pl-4 text-xs font-semibold text-muted-foreground",
-                    )}
-                  >
-                    {subrow && <span className="h-1.5 w-1.5 rounded-full bg-primary/40" />}
+                <td className="px-4 py-3 align-top">
+                  <div className="font-semibold text-sm text-foreground">
                     {label}
                   </div>
-                  <div className={cn("text-xs text-muted-foreground", subrow && "pl-4 text-[11px]")}>
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     {blurb}
                   </div>
                 </td>
@@ -197,7 +185,7 @@ function RolesPage() {
                   return (
                     <td key={role} className="align-top">
                       <div className={cn("grid grid-cols-2 gap-1 px-2 py-2", busy && "opacity-60")}>
-                        {ACTIONS.filter((a) => a !== "update" || tasks).map((a) => {
+                        {ACTIONS.filter((a) => a !== "update" || module === "jobs").map((a) => {
                           const on = !!g?.[a];
                           const locked = a === "delete" && DELETE_LOCKED[module];
                           const dead = a !== "view" && !g?.view;
@@ -242,7 +230,7 @@ function RolesPage() {
                 })}
                 <td className="align-top">
                   <div className="grid grid-cols-2 gap-1 px-2 py-2">
-                    {ACTIONS.filter((a) => a !== "update" || tasks).map((a) => {
+                    {ACTIONS.filter((a) => a !== "update" || module === "jobs").map((a) => {
                       const locked = a === "delete" && DELETE_LOCKED[module];
                       return (
                         <span
