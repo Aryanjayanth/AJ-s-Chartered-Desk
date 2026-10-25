@@ -682,7 +682,7 @@ function PaymentsPage() {
           )}
 
           {/* Bank Transfer / Cheque Bank Selection (Indian Bank at top, persistent firm accounts with deletion) */}
-          {(payForm.mode === "bank_transfer" || payForm.mode === "cheque") && (
+          {(payForm.mode === "bank" || payForm.mode === "bank_transfer" || payForm.mode === "cheque") && (
             <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 p-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-foreground">Receiving Bank Account (To / From)</span>
