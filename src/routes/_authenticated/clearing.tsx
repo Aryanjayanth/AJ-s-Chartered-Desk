@@ -54,6 +54,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { DataTable } from "@/components/app/DataTable";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useRoles } from "@/hooks/use-roles";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { manualAllocatePayment, recordPaymentEntry } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 import {
@@ -166,6 +167,7 @@ function ClearingDeskPage() {
   const search = Route.useSearch();
   const qc = useQueryClient();
   const { canCreate, canEdit } = usePermissions();
+  const { data: currentFirm } = useCurrentFirm();
 
   // Filters for Main Payments View
   const [statusFilter, setStatusFilter] = useState<"all" | "available" | "partial" | "cleared">(
@@ -177,6 +179,8 @@ function ClearingDeskPage() {
 
   // Record Payment Modal state
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+  const [modalBank, setModalBank] = useState("");
+  const [modalUpi, setModalUpi] = useState("");
   const [recordForm, setRecordForm] = useState({
     clientId: search.client ?? "",
     jobId: search.job ?? "",
@@ -186,6 +190,24 @@ function ClearingDeskPage() {
     narration: "Advance Client Deposit",
   });
   const [isSavingRecord, setIsSavingRecord] = useState(false);
+
+  const modalSavedBanks = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(`ca_firm_bank_${currentFirm?.id || "global"}`);
+      return raw ? JSON.parse(raw) : ["Indian Bank", "State Bank of India (SBI)", "HDFC Bank", "ICICI Bank"];
+    } catch {
+      return ["Indian Bank", "State Bank of India (SBI)", "HDFC Bank", "ICICI Bank"];
+    }
+  }, [currentFirm?.id, isRecordModalOpen]);
+
+  const modalSavedUpi = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(`ca_firm_upi_${currentFirm?.id || "global"}`);
+      return raw ? JSON.parse(raw) : ["Indian Bank UPI", "SBI UPI", "HDFC UPI"];
+    } catch {
+      return ["Indian Bank UPI", "SBI UPI", "HDFC UPI"];
+    }
+  }, [currentFirm?.id, isRecordModalOpen]);
 
   // Complete Window Allocation Workspace State
   const [allocatingPayment, setAllocatingPayment] = useState<PaymentRow | null>(null);
@@ -298,7 +320,7 @@ function ClearingDeskPage() {
       const { data, error } = await supabase
         .from("jobs")
         .select(
-          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, tds_tcs, other_deduction, discount, final_amount, status), payments(id, amount, status)",
+          "id, job_code, title, client_id, status, financial_status, fee, discount, net_amount, due_date, created_at, services(name), clients(name, client_code), invoice_items(invoice_id, invoices(id, invoice_no, status, total, amount_paid, outstanding)), job_clearing(advance, tds_tcs, other_deduction, discount, final_amount, status), payments(id, amount, allocated_amount, status)",
         )
         .order("job_code", { ascending: true });
 
@@ -326,7 +348,11 @@ function ClearingDeskPage() {
         // Sum direct advance payments recorded against this job
         const directAdvance = ((j.payments as any[]) ?? [])
           .filter((p: any) => p && p.status !== "reversed")
-          .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+          .reduce(
+            (sum: number, p: any) =>
+              sum + Math.min(Number(p.amount || 0), Number(p.allocated_amount ?? p.amount ?? 0)),
+            0,
+          );
 
         const totalAdvance = Math.max(initialAdvance, directAdvance);
 
@@ -2340,6 +2366,62 @@ function ClearingDeskPage() {
                 ))}
               </NativeSelect>
             </Field>
+
+            {(recordForm.mode === "bank" || recordForm.mode === "cheque") && (
+              <Field label="Receiving Bank Account">
+                <NativeSelect
+                  value={modalBank}
+                  onChange={(e) => {
+                    const b = e.target.value;
+                    setModalBank(b);
+                    if (b) {
+                      setRecordForm((prev) => {
+                        const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
+                        return {
+                          ...prev,
+                          narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
+                        };
+                      });
+                    }
+                  }}
+                >
+                  <option value="">Select firm bank account…</option>
+                  {modalSavedBanks.map((b: string) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            )}
+
+            {recordForm.mode === "upi" && (
+              <Field label="Received into UPI Account">
+                <NativeSelect
+                  value={modalUpi}
+                  onChange={(e) => {
+                    const u = e.target.value;
+                    setModalUpi(u);
+                    if (u) {
+                      setRecordForm((prev) => {
+                        const clean = prev.narration.replace(/\[UPI Account:\s*[^\]]+\]\s*/gi, "").trim();
+                        return {
+                          ...prev,
+                          narration: clean ? `[UPI Account: ${u}] ${clean}` : `[UPI Account: ${u}]`,
+                        };
+                      });
+                    }
+                  }}
+                >
+                  <option value="">Select firm UPI account…</option>
+                  {modalSavedUpi.map((u: string) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            )}
 
             <Field label="Narration / Note">
               <Input
