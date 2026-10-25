@@ -17,6 +17,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedAgeingRouteImport } from './routes/_authenticated/ageing'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedClearingRouteImport } from './routes/_authenticated/clearing'
+import { Route as AuthenticatedDailyReportRouteImport } from './routes/_authenticated/daily-report'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDeductionsRouteImport } from './routes/_authenticated/deductions'
 import { Route as AuthenticatedExceptionsRouteImport } from './routes/_authenticated/exceptions'
@@ -80,6 +81,12 @@ const AuthenticatedClearingRoute = AuthenticatedClearingRouteImport.update({
   path: '/clearing',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDailyReportRoute =
+  AuthenticatedDailyReportRouteImport.update({
+    id: '/daily-report',
+    path: '/daily-report',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -211,6 +218,7 @@ export interface FileRoutesByFullPath {
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/clearing': typeof AuthenticatedClearingRoute
+  '/daily-report': typeof AuthenticatedDailyReportRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/deductions': typeof AuthenticatedDeductionsRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
@@ -243,6 +251,7 @@ export interface FileRoutesByTo {
   '/ageing': typeof AuthenticatedAgeingRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/clearing': typeof AuthenticatedClearingRoute
+  '/daily-report': typeof AuthenticatedDailyReportRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/deductions': typeof AuthenticatedDeductionsRoute
   '/exceptions': typeof AuthenticatedExceptionsRoute
@@ -277,6 +286,7 @@ export interface FileRoutesById {
   '/_authenticated/ageing': typeof AuthenticatedAgeingRoute
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/clearing': typeof AuthenticatedClearingRoute
+  '/_authenticated/daily-report': typeof AuthenticatedDailyReportRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/deductions': typeof AuthenticatedDeductionsRoute
   '/_authenticated/exceptions': typeof AuthenticatedExceptionsRoute
@@ -311,6 +321,7 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
+    | '/daily-report'
     | '/dashboard'
     | '/deductions'
     | '/exceptions'
@@ -343,6 +354,7 @@ export interface FileRouteTypes {
     | '/ageing'
     | '/audit'
     | '/clearing'
+    | '/daily-report'
     | '/dashboard'
     | '/deductions'
     | '/exceptions'
@@ -376,6 +388,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ageing'
     | '/_authenticated/audit'
     | '/_authenticated/clearing'
+    | '/_authenticated/daily-report'
     | '/_authenticated/dashboard'
     | '/_authenticated/deductions'
     | '/_authenticated/exceptions'
@@ -464,6 +477,13 @@ declare module '@tanstack/react-router' {
       path: '/clearing'
       fullPath: '/clearing'
       preLoaderRoute: typeof AuthenticatedClearingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/daily-report': {
+      id: '/_authenticated/daily-report'
+      path: '/daily-report'
+      fullPath: '/daily-report'
+      preLoaderRoute: typeof AuthenticatedDailyReportRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -635,6 +655,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAgeingRoute: typeof AuthenticatedAgeingRoute
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedClearingRoute: typeof AuthenticatedClearingRoute
+  AuthenticatedDailyReportRoute: typeof AuthenticatedDailyReportRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDeductionsRoute: typeof AuthenticatedDeductionsRoute
   AuthenticatedExceptionsRoute: typeof AuthenticatedExceptionsRoute
@@ -665,6 +686,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAgeingRoute: AuthenticatedAgeingRoute,
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedClearingRoute: AuthenticatedClearingRoute,
+  AuthenticatedDailyReportRoute: AuthenticatedDailyReportRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDeductionsRoute: AuthenticatedDeductionsRoute,
   AuthenticatedExceptionsRoute: AuthenticatedExceptionsRoute,

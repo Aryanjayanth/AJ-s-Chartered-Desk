@@ -199,10 +199,12 @@ export function ClientForm({
   open,
   onOpenChange,
   client,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   client?: Client | null;
+  onSaved?: (client: Client) => void;
 }) {
   const [f, setF] = useState<Record<string, string>>(empty);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -340,18 +342,21 @@ export function ClientForm({
       business_type: resolvedIndustry || null,
     };
 
-    const { error } = client
+    const { data, error } = client
       ? await supabase
           .from("clients")
           .update({ ...payload, updated_at: new Date().toISOString() })
           .eq("id", client.id)
-      : await supabase.from("clients").insert(payload);
+          .select()
+          .single()
+      : await supabase.from("clients").insert(payload).select().single();
 
     setBusy(false);
     if (error) return toast.error(errMsg(error));
     toast.success(client ? "Client updated" : "Client added");
     qc.invalidateQueries();
     onOpenChange(false);
+    if (data && onSaved) onSaved(data as Client);
   };
 
   if (!open) return null;

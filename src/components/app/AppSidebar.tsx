@@ -24,6 +24,7 @@ import {
   ArrowLeftRight,
   Layers,
   BadgePercent,
+  CalendarDays,
 } from "lucide-react";
 import {
   Sidebar,
@@ -84,6 +85,7 @@ const groups: { label: string; items: Item[]; open?: boolean }[] = [
     label: "Receivables & Reports",
     open: true,
     items: [
+      { title: "Day's Report", url: "/daily-report", icon: CalendarDays, roles: M },
       { title: "Outstanding", url: "/outstanding", icon: AlertTriangle, roles: M },
       { title: "Ageing", url: "/ageing", icon: CalendarClock, roles: M },
       { title: "Reports", url: "/reports", icon: BarChart3, roles: M },

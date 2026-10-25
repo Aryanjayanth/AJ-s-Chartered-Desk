@@ -26,6 +26,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { ClientSelect, Field, FormScreen, NativeSelect } from "./common";
+import { ClientForm } from "@/components/app/ClientForm";
 import { useClientLookup } from "@/hooks/use-roles";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, FREQS, inr, today } from "@/lib/format";
@@ -60,6 +61,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
   const [customCompanyName, setCustomCompanyName] = useState("");
   const [isCustomCompany, setIsCustomCompany] = useState(false);
   const [clientId, setClientId] = useState(initialClientId ?? "");
+  const [addClientOpen, setAddClientOpen] = useState(false);
   const [taskDate, setTaskDate] = useState(today());
   const [items, setItems] = useState<JobServiceRow[]>([]);
   const [servicesPopoverOpen, setServicesPopoverOpen] = useState(false);
@@ -929,7 +931,18 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 value={clientId}
                 onChange={(id) => setClientId(id)}
                 placeholder="Search and select client by name or code…"
+                onAddNewClient={() => setAddClientOpen(true)}
               />
+              {addClientOpen && (
+                <ClientForm
+                  open={addClientOpen}
+                  onOpenChange={setAddClientOpen}
+                  onSaved={(newClient) => {
+                    qc.invalidateQueries({ queryKey: ["client-lookup"] });
+                    if (newClient?.id) setClientId(newClient.id);
+                  }}
+                />
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">

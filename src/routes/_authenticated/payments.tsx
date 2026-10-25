@@ -13,12 +13,15 @@ import {
   Clock,
   Download,
   RotateCcw,
+  Building,
+  Plus,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/app/DataTable";
+import { ClientForm } from "@/components/app/ClientForm";
 import {
   ClientSelect,
   DateRangePicker,
@@ -29,6 +32,7 @@ import {
 } from "@/components/app/common";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { useClientLookup, useRoles } from "@/hooks/use-roles";
+import { useCurrentFirm } from "@/hooks/use-firm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { recordPaymentEntry } from "@/lib/firms.functions";
 import { readList } from "@/lib/supabase-read";
@@ -49,6 +53,21 @@ export const Route = createFileRoute("/_authenticated/payments")({
   component: PaymentsPage,
 });
 
+const INDIAN_BANKS = [
+  "Indian Bank",
+  "State Bank of India (SBI)",
+  "HDFC Bank",
+  "ICICI Bank",
+  "Axis Bank",
+  "Punjab National Bank (PNB)",
+  "Bank of Baroda",
+  "Kotak Mahindra Bank",
+  "Canara Bank",
+  "Union Bank of India",
+  "Bank of India",
+  "Central Bank of India",
+] as const;
+
 const emptyPayment = {
   job_id: "",
   amount: "",
@@ -63,6 +82,7 @@ function PaymentsPage() {
   const { user } = useRouteContext({ from: "/_authenticated" });
   const { isFinance } = useRoles();
   const { canCreate, canEdit, canSeeAmounts } = usePermissions();
+  const { data: currentFirm } = useCurrentFirm();
   const qc = useQueryClient();
   const { data: clients } = useClientLookup();
 
@@ -83,10 +103,67 @@ function PaymentsPage() {
 
   // Payment Form state
   const [payClientId, setPayClientId] = useState(search.client ?? "");
+  const [addClientOpen, setAddClientOpen] = useState(false);
   const [payForm, setPayForm] = useState(() => ({
     ...emptyPayment,
     job_id: search.job ?? "",
   }));
+
+  // Bank & UPI options state
+  const upiStorageKey = `ca_firm_upi_${currentFirm?.id || "global"}`;
+  const [savedUpiAccounts, setSavedUpiAccounts] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`ca_firm_upi_${currentFirm?.id || "global"}`);
+      return raw ? JSON.parse(raw) : ["Indian Bank UPI", "SBI UPI", "HDFC UPI"];
+    } catch {
+      return ["Indian Bank UPI", "SBI UPI", "HDFC UPI"];
+    }
+  });
+  const [selectedUpiAccount, setSelectedUpiAccount] = useState("");
+  const [newUpiInput, setNewUpiInput] = useState("");
+  const [showAddUpi, setShowAddUpi] = useState(false);
+
+  const [selectedBank, setSelectedBank] = useState("");
+  const [customBankInput, setCustomBankInput] = useState("");
+  const [showCustomBank, setShowCustomBank] = useState(false);
+
+  useEffect(() => {
+    if (!currentFirm?.id) return;
+    try {
+      const raw = localStorage.getItem(`ca_firm_upi_${currentFirm.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSavedUpiAccounts(Array.from(new Set(["Indian Bank UPI", ...parsed])));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentFirm?.id]);
+
+  const handleAddNewUpiAccount = () => {
+    const trimmed = newUpiInput.trim();
+    if (!trimmed) return;
+    const updated = Array.from(new Set([...savedUpiAccounts, trimmed]));
+    setSavedUpiAccounts(updated);
+    setSelectedUpiAccount(trimmed);
+    setNewUpiInput("");
+    setShowAddUpi(false);
+    try {
+      localStorage.setItem(upiStorageKey, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    setPayForm((prev) => {
+      const clean = prev.narration.replace(/\[UPI Account:\s*[^\]]+\]\s*/gi, "").trim();
+      return {
+        ...prev,
+        narration: clean ? `[UPI Account: ${trimmed}] ${clean}` : `[UPI Account: ${trimmed}]`,
+      };
+    });
+    toast.success(`Saved and selected UPI account: ${trimmed}`);
+  };
 
   useEffect(() => {
     if (search.client) setPayClientId(search.client);
@@ -114,6 +191,31 @@ function PaymentsPage() {
     if (!payClientId) return [];
     return (jobs ?? []).filter((j) => j.client_id === payClientId);
   }, [jobs, payClientId]);
+
+  const selectedJob = useMemo(() => {
+    if (!payForm.job_id) return null;
+    return payClientJobs.find((j) => j.id === payForm.job_id) ?? null;
+  }, [payForm.job_id, payClientJobs]);
+
+  const jobFee = Number(selectedJob?.net_amount || selectedJob?.fee || 0);
+  const enteredAmount = Number(payForm.amount || 0);
+
+  // Auto-populate fee when URL parameter provides job or when job finishes loading
+  useEffect(() => {
+    if (payForm.job_id && jobs && jobs.length > 0 && (!payForm.amount || payForm.amount === "0")) {
+      const j = jobs.find((item) => item.id === payForm.job_id);
+      if (j) {
+        const feeVal = j.net_amount || j.fee;
+        if (feeVal) {
+          setPayForm((prev) => ({
+            ...prev,
+            amount: String(feeVal),
+            narration: prev.narration || `Advance payment for job ${j.job_code}`,
+          }));
+        }
+      }
+    }
+  }, [payForm.job_id, jobs]);
 
   // Payments Query
   const payQuery = useQuery({
@@ -254,7 +356,18 @@ function PaymentsPage() {
               value={payClientId}
               onChange={handlePayClientChange}
               placeholder="Search and select client…"
+              onAddNewClient={() => setAddClientOpen(true)}
             />
+            {addClientOpen && (
+              <ClientForm
+                open={addClientOpen}
+                onOpenChange={setAddClientOpen}
+                onSaved={(c) => {
+                  qc.invalidateQueries({ queryKey: ["client-lookup"] });
+                  if (c?.id) handlePayClientChange(c.id);
+                }}
+              />
+            )}
           </Field>
 
           {payClientId && (
@@ -267,16 +380,10 @@ function PaymentsPage() {
                   setPayForm((prev) => ({
                     ...prev,
                     job_id: selJobId,
-                    amount: prev.amount
-                      ? prev.amount
-                      : selJob
-                        ? String(selJob.net_amount || selJob.fee || "")
-                        : "",
-                    narration: prev.narration
-                      ? prev.narration
-                      : selJob
-                        ? `Advance payment for job ${selJob.job_code}`
-                        : "",
+                    amount: selJob ? String(selJob.net_amount || selJob.fee || "") : "",
+                    narration: selJob
+                      ? `Advance payment for job ${selJob.job_code}`
+                      : "",
                   }));
                 }}
               >
@@ -326,6 +433,242 @@ function PaymentsPage() {
               </NativeSelect>
             </Field>
           </div>
+
+          {/* Live Fee & Balance Review Preview */}
+          {selectedJob && (
+            <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="truncate pr-2">
+                  Linked Task: <strong className="text-foreground">{selectedJob.job_code}</strong> — {selectedJob.title}
+                </span>
+                <span className="font-mono text-xs shrink-0">
+                  Total Fee: <strong className="text-foreground">{inr(jobFee)}</strong>
+                </span>
+              </div>
+
+              {enteredAmount > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-border/40 font-mono text-[11px]">
+                  <div className="bg-background/80 p-2 rounded border border-border/50">
+                    <div className="text-muted-foreground text-[10px] uppercase font-sans">Job Total Fee</div>
+                    <div className="text-sm font-semibold text-foreground">{inr(jobFee)}</div>
+                  </div>
+                  <div className="bg-background/80 p-2 rounded border border-border/50">
+                    <div className="text-muted-foreground text-[10px] uppercase font-sans">Paying Now</div>
+                    <div className="text-sm font-semibold text-primary">{inr(enteredAmount)}</div>
+                  </div>
+                  <div className="bg-background/80 p-2 rounded border border-border/50">
+                    <div className="text-muted-foreground text-[10px] uppercase font-sans">
+                      {enteredAmount < jobFee
+                        ? "Pending Balance"
+                        : enteredAmount > jobFee
+                          ? "Excess to Credit"
+                          : "Job Cleared"}
+                    </div>
+                    <div
+                      className={cn(
+                        "text-sm font-semibold",
+                        enteredAmount < jobFee
+                          ? "text-amber-600 dark:text-amber-400"
+                          : enteredAmount > jobFee
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-emerald-600 dark:text-emerald-400",
+                      )}
+                    >
+                      {enteredAmount < jobFee
+                        ? inr(jobFee - enteredAmount)
+                        : enteredAmount > jobFee
+                          ? `+ ${inr(enteredAmount - jobFee)}`
+                          : "Full (₹0 Left)"}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[11px] text-muted-foreground">
+                  <span>Enter an amount to see the remaining balance breakdown.</span>
+                  <button
+                    type="button"
+                    onClick={() => setPayForm((p) => ({ ...p, amount: String(jobFee) }))}
+                    className="text-primary hover:underline font-medium cursor-pointer"
+                  >
+                    Auto-fill Full Fee ({inr(jobFee)})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* UPI Account Selection (Indian Bank at top, persistent custom firm accounts) */}
+          {payForm.mode === "upi" && (
+            <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 p-3">
+              <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                <span>Received into UPI Account / Number</span>
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  Select which firm account received the funds
+                </span>
+              </label>
+              <NativeSelect
+                value={selectedUpiAccount}
+                onChange={(e) => {
+                  const u = e.target.value;
+                  if (u === "__add_new__") {
+                    setShowAddUpi(true);
+                  } else {
+                    setSelectedUpiAccount(u);
+                    setShowAddUpi(false);
+                    if (u) {
+                      setPayForm((prev) => {
+                        const clean = prev.narration.replace(/\[UPI Account:\s*[^\]]+\]\s*/gi, "").trim();
+                        return {
+                          ...prev,
+                          narration: clean ? `[UPI Account: ${u}] ${clean}` : `[UPI Account: ${u}]`,
+                        };
+                      });
+                    }
+                  }
+                }}
+              >
+                <option value="">Select firm UPI account / ID…</option>
+                {savedUpiAccounts.map((acc) => (
+                  <option key={acc} value={acc}>
+                    {acc}
+                  </option>
+                ))}
+                <option value="__add_new__">+ Add / Save New UPI Account or Number…</option>
+              </NativeSelect>
+
+              {showAddUpi && (
+                <div className="rounded border border-dashed border-primary/40 bg-background/80 p-2.5 mt-2 space-y-1.5">
+                  <div className="text-[11px] font-medium text-foreground">
+                    Add & Save Firm UPI Account or Mobile Number
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="e.g. 9848012345@indianbank or practice@sbi"
+                      value={newUpiInput}
+                      onChange={(e) => setNewUpiInput(e.target.value)}
+                      className="h-8 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddNewUpiAccount();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 text-xs shrink-0 cursor-pointer"
+                      onClick={handleAddNewUpiAccount}
+                    >
+                      Save Account
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-xs shrink-0 cursor-pointer"
+                      onClick={() => setShowAddUpi(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bank Transfer / Cheque Bank Selection (Indian Bank at top) */}
+          {(payForm.mode === "bank_transfer" || payForm.mode === "cheque") && (
+            <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 p-3">
+              <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                <span>Receiving Bank (To / From)</span>
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  Select bank receiving the transfer
+                </span>
+              </label>
+              <NativeSelect
+                value={selectedBank}
+                onChange={(e) => {
+                  const b = e.target.value;
+                  setSelectedBank(b);
+                  setShowCustomBank(b === "__custom__");
+                  if (b && b !== "__custom__") {
+                    setPayForm((prev) => {
+                      const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
+                      return {
+                        ...prev,
+                        narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
+                      };
+                    });
+                  }
+                }}
+              >
+                <option value="">Select bank…</option>
+                {INDIAN_BANKS.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+                <option value="__custom__">+ Enter Custom Bank Name…</option>
+              </NativeSelect>
+
+              {showCustomBank && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    placeholder="Enter custom bank name…"
+                    value={customBankInput}
+                    onChange={(e) => setCustomBankInput(e.target.value)}
+                    className="h-8 text-xs"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!customBankInput.trim()) return;
+                        const b = customBankInput.trim();
+                        setSelectedBank(b);
+                        setShowCustomBank(false);
+                        setPayForm((prev) => {
+                          const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
+                          return {
+                            ...prev,
+                            narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
+                          };
+                        });
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 text-xs shrink-0 cursor-pointer"
+                    onClick={() => {
+                      if (!customBankInput.trim()) return;
+                      const b = customBankInput.trim();
+                      setSelectedBank(b);
+                      setShowCustomBank(false);
+                      setPayForm((prev) => {
+                        const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
+                        return {
+                          ...prev,
+                          narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
+                        };
+                      });
+                    }}
+                  >
+                    Set Bank
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs shrink-0 cursor-pointer"
+                    onClick={() => setShowCustomBank(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           <Field label="Narration / Remarks (Optional)">
             <Input

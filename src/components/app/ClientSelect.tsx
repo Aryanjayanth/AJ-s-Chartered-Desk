@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -31,6 +31,7 @@ export interface ClientSelectProps {
   disabled?: boolean;
   className?: string;
   id?: string;
+  onAddNewClient?: () => void;
 }
 
 export function ClientSelect({
@@ -44,6 +45,7 @@ export function ClientSelect({
   allowClear = true,
   disabled = false,
   className,
+  onAddNewClient,
 }: ClientSelectProps) {
   const [open, setOpen] = React.useState(false);
   const { data: lookupClients, isLoading } = useClientLookup();
@@ -166,6 +168,21 @@ export function ClientSelect({
               })}
             </CommandGroup>
           </CommandList>
+          {onAddNewClient && (
+            <div className="border-t border-border/60 p-1 bg-muted/20">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onAddNewClient();
+                }}
+                className="w-full flex items-center gap-2 rounded px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer text-left"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>+ Add New Client</span>
+              </button>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>
