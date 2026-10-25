@@ -297,6 +297,94 @@ export const generateLoginLink = createServerFn({ method: "POST" })
     return { link, otpCode, email };
   });
 
+export const kickUserFromFirm = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        targetUserId: z.string().uuid(),
+        firmId: z.string().uuid(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: isMgr } = await sb.rpc("is_manager");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
+
+    if (!isSuper && (!isMgr || currentFirm !== data.firmId)) {
+      throw new Error("Not authorised: Only firm administrators can remove team members.");
+    }
+
+    if (context.userId === data.targetUserId) {
+      throw new Error("You cannot remove yourself from the firm.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1. Delete all user_roles for this user
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.targetUserId);
+
+    // 2. Detach profile from the firm and set inactive
+    await supabaseAdmin
+      .from("profiles")
+      .update({
+        firm_id: null,
+        acting_firm_id: null,
+        active: false,
+      })
+      .eq("id", data.targetUserId);
+
+    // 3. Delete any active invites for this user's email in this firm
+    const { data: prof } = await supabaseAdmin
+      .from("profiles")
+      .select("email")
+      .eq("id", data.targetUserId)
+      .maybeSingle();
+
+    if (prof?.email) {
+      await supabaseAdmin
+        .from("firm_invites")
+        .delete()
+        .eq("firm_id", data.firmId)
+        .eq("email", prof.email);
+    }
+
+    return { success: true };
+  });
+
+export const cancelFirmInvite = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        inviteId: z.string().uuid(),
+        firmId: z.string().uuid(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: isMgr } = await sb.rpc("is_manager");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
+
+    if (!isSuper && (!isMgr || currentFirm !== data.firmId)) {
+      throw new Error("Not authorised: Only firm administrators can cancel invitations.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    await supabaseAdmin
+      .from("firm_invites")
+      .delete()
+      .eq("id", data.inviteId)
+      .eq("firm_id", data.firmId);
+
+    return { success: true };
+  });
+
 export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z

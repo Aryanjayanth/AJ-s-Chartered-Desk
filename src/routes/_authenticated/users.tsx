@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouteContext } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -10,13 +10,21 @@ import { NoAccess, PageHeader } from "@/components/app/common";
 import { useRoles, ROLES, type Role } from "@/hooks/use-roles";
 import { errMsg, fmtDate, label } from "@/lib/format";
 import { useState } from "react";
-import { UserPlus, Link2, Copy, Check, Mail, Clock } from "lucide-react";
+import { UserPlus, Link2, Copy, Check, Mail, Clock, Trash2, UserMinus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useCurrentFirm } from "@/hooks/use-firm";
 import { InviteDialog } from "@/components/app/InviteDialog";
-import { generateLoginLink } from "@/lib/firms.functions";
+import { generateLoginLink, kickUserFromFirm, cancelFirmInvite } from "@/lib/firms.functions";
 
 export const Route = createFileRoute("/_authenticated/users")({
   head: () => ({
@@ -29,12 +37,19 @@ export const Route = createFileRoute("/_authenticated/users")({
 });
 
 function UsersPage() {
+  const { user } = useRouteContext({ from: "/_authenticated" });
   const { isManager, loading } = useRoles();
   const { data: firm } = useCurrentFirm();
   const [invite, setInvite] = useState(false);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [userToKick, setUserToKick] = useState<{ id: string; name: string } | null>(null);
+  const [isKicking, setIsKicking] = useState(false);
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(null);
+
   const qc = useQueryClient();
   const runGenLink = useServerFn(generateLoginLink);
+  const runKickUser = useServerFn(kickUserFromFirm);
+  const runCancelInvite = useServerFn(cancelFirmInvite);
 
   const q = useQuery({
     queryKey: ["users-roles"],
@@ -98,6 +113,40 @@ function UsersPage() {
       toast.error(errMsg(e));
     } finally {
       setGeneratingFor(null);
+    }
+  };
+
+  const handleCancelInvite = async (inviteId: string, email: string) => {
+    if (!firm?.id) return;
+    setCancellingInviteId(inviteId);
+    try {
+      await runCancelInvite({ data: { inviteId, firmId: firm.id } });
+      toast.success(`Revoked invitation for ${email}`);
+      invitesQ.refetch();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setCancellingInviteId(null);
+    }
+  };
+
+  const handleConfirmKick = async () => {
+    if (!userToKick || !firm?.id) return;
+    setIsKicking(true);
+    try {
+      await runKickUser({
+        data: {
+          targetUserId: userToKick.id,
+          firmId: firm.id,
+        },
+      });
+      toast.success(`Removed ${userToKick.name} from practice team.`);
+      setUserToKick(null);
+      qc.invalidateQueries({ queryKey: ["users-roles"] });
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setIsKicking(false);
     }
   };
 
@@ -166,7 +215,17 @@ function UsersPage() {
                       onClick={() => copyUserLink(inv.email)}
                     >
                       <Link2 className="h-3 w-3" />
-                      {generatingFor === inv.email ? "Generating…" : "Copy Activation Link"}
+                      {generatingFor === inv.email ? "Generating…" : "Copy Link"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10"
+                      disabled={cancellingInviteId === inv.id}
+                      onClick={() => handleCancelInvite(inv.id, inv.email)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      {cancellingInviteId === inv.id ? "Revoking…" : "Revoke"}
                     </Button>
                   </div>
                 </div>
@@ -223,8 +282,67 @@ function UsersPage() {
               </Button>
             ),
           },
+          {
+            key: "actions",
+            header: "Actions",
+            render: (u: any) => {
+              const isSelf = u.id === user?.id;
+              if (isSelf) {
+                return <span className="text-xs text-muted-foreground font-mono italic">(You)</span>;
+              }
+              return (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                  onClick={() => setUserToKick({ id: u.id, name: u.full_name || u.email || "this user" })}
+                  title="Kick and remove user from firm"
+                >
+                  <UserMinus className="h-3.5 w-3.5" />
+                  Kick
+                </Button>
+              );
+            },
+          },
         ]}
       />
+
+      {/* Kick Confirmation Dialog */}
+      <Dialog open={!!userToKick} onOpenChange={(open) => !open && setUserToKick(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              <DialogTitle>Remove User from Practice</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs text-muted-foreground pt-1.5">
+              Are you sure you want to kick <strong>{userToKick?.name}</strong> from{" "}
+              <strong>{firm?.name}</strong>? All practice roles will be stripped immediately, their
+              account deactivated, and they will lose all access to this firm.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setUserToKick(null)}
+              disabled={isKicking}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={handleConfirmKick}
+              disabled={isKicking}
+            >
+              {isKicking ? "Removing…" : "Yes, Kick User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
