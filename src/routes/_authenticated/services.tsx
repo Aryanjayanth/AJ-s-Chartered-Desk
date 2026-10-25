@@ -25,7 +25,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, fmtDate, inr } from "@/lib/format";
 import { RECURRING_FREQS, SERVICE_TYPES } from "@/lib/service-options";
-import { fetchFirmServices, seedStandardServices } from "@/lib/standard-services";
+import { fetchFirmServices } from "@/lib/standard-services";
 
 export const Route = createFileRoute("/_authenticated/services")({
   head: () => ({
@@ -124,24 +124,10 @@ function ServicesPage() {
         subtitle="What your firm offers. Fees and due-day rules are set per client assignment."
         actions={
           canCreate("services") && (
-            <div className="flex items-center gap-2">
-              {(!q.data || q.data.length === 0) && !q.isLoading && (
-                <Button
-                  variant="outline"
-                  onClick={async () => {
-                    await seedStandardServices(currentFirm?.id);
-                    await qc.invalidateQueries({ queryKey: ["services-all", currentFirm?.id] });
-                    toast.success("Standard Chartered Desk practice services loaded");
-                  }}
-                >
-                  Load Standard Services
-                </Button>
-              )}
-              <Button onClick={() => setEditing("new")}>
-                <Plus className="mr-1 h-4 w-4" />
-                Add Service
-              </Button>
-            </div>
+            <Button onClick={() => setEditing("new")}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add Service
+            </Button>
           )
         }
       />

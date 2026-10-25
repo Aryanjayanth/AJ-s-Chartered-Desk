@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Save, Database, AlertTriangle } from "lucide-react";
+import { Building2, Save, Database } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Field, NoAccess, PageHeader } from "@/components/app/common";
 import { CompleteBackupButton } from "@/components/app/CompleteBackupButton";
-import { ClearDataDialog } from "@/components/app/ClearDataDialog";
 import { useRoles } from "@/hooks/use-roles";
 import { useCurrentFirm, useSuperAdmin } from "@/hooks/use-firm";
 import { AvatarPicker } from "@/components/app/EntityAvatar";
@@ -343,30 +342,7 @@ export function SettingsPage() {
         </CardHeader>
       </Card>
 
-      {/* Danger Zone: Clear / Reset Test Data for Admins */}
-      {isManager && (
-        <Card className="shadow-none border border-destructive/30 bg-destructive/5">
-          <CardHeader className="pb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-base font-semibold flex items-center gap-2 text-destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  Danger Zone: Reset Practice Test Data
-                </CardTitle>
-                <CardDescription className="text-xs mt-1">
-                  Permanently purge all test clients, compliance jobs, invoices, payments, and settlements.
-                  Firm profile, team logins, roles, and master services are kept intact.
-                </CardDescription>
-              </div>
-              <ClearDataDialog
-                firmId={currentFirm?.id}
-                firmName={currentFirm?.name}
-                className="shrink-0"
-              />
-            </div>
-          </CardHeader>
-        </Card>
-      )}
+
 
       <div className="flex items-center justify-end pt-2 pb-6">
         <Button onClick={saveCurrentFirm} disabled={saving} className="px-6 gap-2">

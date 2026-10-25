@@ -32,7 +32,7 @@ import { useClientLookup } from "@/hooks/use-roles";
 import { useCurrentFirm, useUserFirms } from "@/hooks/use-firm";
 import { errMsg, FREQS, inr, today } from "@/lib/format";
 import { firstDuePreview, monthLabel, normalizeServiceType } from "@/lib/service-options";
-import { fetchFirmServices, seedStandardServices } from "@/lib/standard-services";
+import { fetchFirmServices } from "@/lib/standard-services";
 import { recordPaymentEntry } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 
@@ -1029,24 +1029,8 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                   <CommandInput placeholder="Search services..." className="h-9 text-xs" />
                   <CommandList className="max-h-72">
                     <CommandEmpty>
-                      <div className="py-2 text-center space-y-2">
-                        <p>
-                          {servicesQuery.isLoading ? "Loading services…" : "No services found."}
-                        </p>
-                        {!servicesQuery.isLoading && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="text-xs h-7"
-                            onClick={async () => {
-                              await seedStandardServices(activeFirmId);
-                              qc.invalidateQueries({ queryKey: ["active-services", activeFirmId] });
-                            }}
-                          >
-                            Load Standard CA Services
-                          </Button>
-                        )}
+                      <div className="py-2 text-center text-sm text-muted-foreground">
+                        {servicesQuery.isLoading ? "Loading services…" : "No services found."}
                       </div>
                     </CommandEmpty>
                     <div className="flex items-center justify-between border-b px-3 py-1.5 text-[11px] bg-muted/40">
