@@ -43,16 +43,59 @@ begin
     raise exception 'Access denied: Only a Firm Admin or Super Admin can reset practice data.';
   end if;
 
-  -- Wipe transactional records in FK dependency order for the target firm
+  -- 1. Explicit child tables deletion (safe whether firm_id column is directly on child or via parent)
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'invoice_items') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'invoice_items' and column_name = 'firm_id') then
+      delete from public.invoice_items where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'invoice_items' and column_name = 'invoice_id') then
+      delete from public.invoice_items where invoice_id in (select id from public.invoices where firm_id = target_id);
+    end if;
+  end if;
+
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'payment_allocations') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'payment_allocations' and column_name = 'firm_id') then
+      delete from public.payment_allocations where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'payment_allocations' and column_name = 'payment_id') then
+      delete from public.payment_allocations where payment_id in (select id from public.payments where firm_id = target_id);
+    end if;
+  end if;
+
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'payment_reversals') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'payment_reversals' and column_name = 'firm_id') then
+      delete from public.payment_reversals where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'payment_reversals' and column_name = 'payment_id') then
+      delete from public.payment_reversals where payment_id in (select id from public.payments where firm_id = target_id);
+    end if;
+  end if;
+
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'job_status_history') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_status_history' and column_name = 'firm_id') then
+      delete from public.job_status_history where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_status_history' and column_name = 'job_id') then
+      delete from public.job_status_history where job_id in (select id from public.jobs where firm_id = target_id);
+    end if;
+  end if;
+
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'job_clearing') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_clearing' and column_name = 'firm_id') then
+      delete from public.job_clearing where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_clearing' and column_name = 'job_id') then
+      delete from public.job_clearing where job_id in (select id from public.jobs where firm_id = target_id);
+    end if;
+  end if;
+
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'job_conditions') then
+    if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_conditions' and column_name = 'firm_id') then
+      delete from public.job_conditions where firm_id = target_id;
+    elsif exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'job_conditions' and column_name = 'job_id') then
+      delete from public.job_conditions where job_id in (select id from public.jobs where firm_id = target_id);
+    end if;
+  end if;
+
+  -- 2. Wipe transactional records in FK dependency order for the target firm
   foreach t in array array[
-    'payment_allocations',
-    'payment_reversals',
-    'invoice_items',
     'invoices',
     'payments',
-    'job_clearing',
-    'job_conditions',
-    'job_status_history',
     'recurring_payments',
     'jobs',
     'expenses',
@@ -74,17 +117,33 @@ begin
 
   -- Reset document numbering sequences for this firm
   if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'doc_counters') then
-    delete from public.doc_counters where firm_id = target_id;
+    if exists (
+      select 1 from information_schema.columns 
+      where table_schema = 'public' and table_name = 'doc_counters' and column_name = 'firm_id'
+    ) then
+      delete from public.doc_counters where firm_id = target_id;
+    end if;
   end if;
+
   if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'doc_sequences') then
-    update public.doc_sequences set current_val = 0 where firm_id = target_id;
+    if exists (
+      select 1 from information_schema.columns 
+      where table_schema = 'public' and table_name = 'doc_sequences' and column_name = 'firm_id'
+    ) then
+      update public.doc_sequences set current_val = 0 where firm_id = target_id;
+    end if;
   end if;
 
   -- Clean firm transactional audit logs (preserve system & role logs)
   if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'audit_logs') then
-    delete from public.audit_logs 
-    where firm_id = target_id 
-      and action not in ('role_permission_set', 'system_init');
+    if exists (
+      select 1 from information_schema.columns 
+      where table_schema = 'public' and table_name = 'audit_logs' and column_name = 'firm_id'
+    ) then
+      delete from public.audit_logs 
+      where firm_id = target_id 
+        and action not in ('role_permission_set', 'system_init');
+    end if;
   end if;
 
   return jsonb_build_object(
