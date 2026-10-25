@@ -94,6 +94,7 @@ function PaymentsPage() {
   const [payFilters, setPayFilters] = useState({
     client: "",
     mode: "",
+    subAccount: "",
     status: "",
     dateBasis: "received",
     from: "",
@@ -812,10 +813,58 @@ function PaymentsPage() {
     </Card>
   );
 
+  const availableUpiAccounts = useMemo(() => {
+    const set = new Set<string>();
+    savedUpiAccounts.forEach((acc) => {
+      if (acc.trim()) set.add(acc.trim());
+    });
+    (payQuery.data ?? []).forEach((p) => {
+      if (p.mode === "upi" && p.narration) {
+        const match = p.narration.match(/\[UPI Account:\s*([^\]]+)\]/i);
+        if (match && match[1]) set.add(match[1].trim());
+      }
+    });
+    return Array.from(set);
+  }, [savedUpiAccounts, payQuery.data]);
+
+  const availableBankAccounts = useMemo(() => {
+    const set = new Set<string>();
+    savedBankAccounts.forEach((acc) => {
+      if (acc.trim()) set.add(acc.trim());
+    });
+    (payQuery.data ?? []).forEach((p) => {
+      if ((p.mode === "bank" || p.mode === "bank_transfer" || p.mode === "cheque") && p.narration) {
+        const match = p.narration.match(/\[Bank:\s*([^\]]+)\]/i);
+        if (match && match[1]) set.add(match[1].trim());
+      }
+    });
+    return Array.from(set);
+  }, [savedBankAccounts, payQuery.data]);
+
   const renderTable = (compact = false) => {
     const filteredPayments = (payQuery.data ?? []).filter((p) => {
       if (payFilters.client && p.client_id !== payFilters.client) return false;
       if (payFilters.mode && p.mode !== payFilters.mode) return false;
+      if (payFilters.subAccount) {
+        const needle = payFilters.subAccount.toLowerCase();
+        const narration = (p.narration || "").toLowerCase();
+        const ref = (p.reference || "").toLowerCase();
+        if (payFilters.mode === "upi") {
+          const accPattern = `[upi account: ${needle}]`;
+          if (!narration.includes(accPattern) && !narration.includes(needle) && !ref.includes(needle)) {
+            return false;
+          }
+        } else if (
+          payFilters.mode === "bank" ||
+          payFilters.mode === "bank_transfer" ||
+          payFilters.mode === "cheque"
+        ) {
+          const bankPattern = `[bank: ${needle}]`;
+          if (!narration.includes(bankPattern) && !narration.includes(needle) && !ref.includes(needle)) {
+            return false;
+          }
+        }
+      }
       if (payFilters.status && p.status !== payFilters.status) return false;
       const basisDate =
         payFilters.dateBasis === "entered"
@@ -908,7 +957,7 @@ function PaymentsPage() {
             <>
               <NativeSelect
                 value={payFilters.mode}
-                onChange={(e) => setPayFilters((p) => ({ ...p, mode: e.target.value }))}
+                onChange={(e) => setPayFilters((p) => ({ ...p, mode: e.target.value, subAccount: "" }))}
                 className="w-32"
               >
                 <option value="">All modes</option>
@@ -918,6 +967,34 @@ function PaymentsPage() {
                   </option>
                 ))}
               </NativeSelect>
+              {payFilters.mode === "upi" && (
+                <NativeSelect
+                  value={payFilters.subAccount}
+                  onChange={(e) => setPayFilters((p) => ({ ...p, subAccount: e.target.value }))}
+                  className="w-44 text-xs font-medium"
+                >
+                  <option value="">All UPI Accounts</option>
+                  {availableUpiAccounts.map((acc) => (
+                    <option key={acc} value={acc}>
+                      {acc}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+              {(payFilters.mode === "bank" || payFilters.mode === "bank_transfer" || payFilters.mode === "cheque") && (
+                <NativeSelect
+                  value={payFilters.subAccount}
+                  onChange={(e) => setPayFilters((p) => ({ ...p, subAccount: e.target.value }))}
+                  className="w-48 text-xs font-medium"
+                >
+                  <option value="">All Bank Accounts</option>
+                  {availableBankAccounts.map((acc) => (
+                    <option key={acc} value={acc}>
+                      {acc}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
               <NativeSelect
                 value={payFilters.status}
                 onChange={(e) => setPayFilters((p) => ({ ...p, status: e.target.value }))}
@@ -942,7 +1019,7 @@ function PaymentsPage() {
                 onToChange={(val) => setPayFilters((p) => ({ ...p, to: val }))}
                 label="Date"
               />
-              {(payFilters.mode || payFilters.status || payFilters.from || payFilters.to) && (
+              {(payFilters.mode || payFilters.subAccount || payFilters.status || payFilters.from || payFilters.to) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -951,6 +1028,7 @@ function PaymentsPage() {
                     setPayFilters((p) => ({
                       ...p,
                       mode: "",
+                      subAccount: "",
                       status: "",
                       from: "",
                       to: "",
@@ -1012,11 +1090,21 @@ function PaymentsPage() {
             {
               key: "mode",
               header: "Mode",
-              render: (p) => (
-                <span className="text-xs uppercase text-muted-foreground">
-                  {MODES[p.mode] ?? p.mode}
-                </span>
-              ),
+              render: (p) => {
+                const sub = p.narration?.match(/\[(?:UPI Account|Bank):\s*([^\]]+)\]/i)?.[1];
+                return (
+                  <div className="flex flex-col">
+                    <span className="text-xs uppercase text-muted-foreground font-medium">
+                      {MODES[p.mode] ?? p.mode}
+                    </span>
+                    {sub && (
+                      <span className="text-[10px] font-mono text-primary font-semibold truncate max-w-[140px]" title={sub}>
+                        {sub}
+                      </span>
+                    )}
+                  </div>
+                );
+              },
             },
             {
               key: "a",
