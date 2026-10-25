@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Download,
@@ -44,6 +44,9 @@ import {
 import { downloadCsv, fmtDate } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/clients/")({
+  validateSearch: (s: Record<string, unknown>): { new?: boolean } => ({
+    new: s.new === "1" || s.new === "true" || s.new === true ? true : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Clients — AJ's Chartered Desk" },
@@ -114,7 +117,12 @@ const tally = (vals: Array<string | null | undefined>): Record<string, number> =
 };
 
 function ClientsPage() {
-  const [open, setOpen] = useState(false);
+  const search = Route.useSearch();
+  const [open, setOpen] = useState(() => Boolean(search.new));
+
+  useEffect(() => {
+    if (search.new) setOpen(true);
+  }, [search.new]);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [showFilters, setShowFilters] = useState(false);
   const [f, setF] = useState<Filters>(NO_FILTERS);

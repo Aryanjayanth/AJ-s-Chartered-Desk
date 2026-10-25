@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -51,6 +52,7 @@ interface JobFormProps {
 }
 
 export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: clients } = useClientLookup();
   const { data: currentFirm } = useCurrentFirm();
@@ -931,18 +933,11 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 value={clientId}
                 onChange={(id) => setClientId(id)}
                 placeholder="Search and select client by name or code…"
-                onAddNewClient={() => setAddClientOpen(true)}
+                onAddNewClient={() => {
+                  onOpenChange(false);
+                  navigate({ to: "/clients", search: { new: true } });
+                }}
               />
-              {addClientOpen && (
-                <ClientForm
-                  open={addClientOpen}
-                  onOpenChange={setAddClientOpen}
-                  onSaved={(newClient) => {
-                    qc.invalidateQueries({ queryKey: ["client-lookup"] });
-                    if (newClient?.id) setClientId(newClient.id);
-                  }}
-                />
-              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">
