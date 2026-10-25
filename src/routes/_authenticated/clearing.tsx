@@ -1330,6 +1330,7 @@ function ClearingDeskPage() {
                   const isAllocExceeded = curAllocNum > netDue + 0.01;
                   const isDiscExceeded = curDiscNum > job.net_amount + 0.01;
                   const isCardOverLimit = isAllocExceeded || isDiscExceeded;
+                  const remainingDue = Math.max(0, job.net_amount - curDiscNum - curAllocNum);
 
                   return (
                     <div
@@ -1403,8 +1404,31 @@ function ClearingDeskPage() {
                             Net Due: {inr(job.net_amount)}
                           </div>
                           {curDiscNum > 0 && (
-                            <div className="text-[11px] font-mono font-semibold text-emerald-600">
-                              After Disc: {inr(netDue)}
+                            <div className="text-[10px] font-mono font-semibold text-emerald-600">
+                              Current Disc: -{inr(curDiscNum)}
+                            </div>
+                          )}
+                          {curAllocNum > 0 && (
+                            <div className="text-[10px] font-mono font-semibold text-blue-600">
+                              Allocating Now: -{inr(curAllocNum)}
+                            </div>
+                          )}
+                          {(curAllocNum > 0 || curDiscNum > 0) && (
+                            <div
+                              className={cn(
+                                "text-xs font-mono font-bold mt-1 pt-1 border-t border-border/40",
+                                remainingDue === 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-amber-600 dark:text-amber-400",
+                              )}
+                            >
+                              {remainingDue === 0 ? (
+                                <span className="inline-flex items-center gap-1">
+                                  Remaining: {inr(0)} (Fully Cleared ✓)
+                                </span>
+                              ) : (
+                                <span>Remaining Still Due: {inr(remainingDue)}</span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1485,9 +1509,25 @@ function ClearingDeskPage() {
                               </button>
                             </div>
                           ) : (
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              Max allowable allocation for this job is {inr(netDue)}
-                            </p>
+                            <div className="flex items-center justify-between text-[10px] mt-1">
+                              <span className="text-muted-foreground">
+                                Max allowable: {inr(netDue)}
+                              </span>
+                              {curAllocNum > 0 && (
+                                <span
+                                  className={cn(
+                                    "font-mono font-semibold",
+                                    remainingDue === 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-amber-600 dark:text-amber-400",
+                                  )}
+                                >
+                                  {remainingDue === 0
+                                    ? "Remaining: ₹0 (Fully Cleared ✓)"
+                                    : `Remaining to Complete: ${inr(remainingDue)}`}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -1597,6 +1637,7 @@ function ClearingDeskPage() {
                   const isExpAllocExceeded = curExpAllocNum > netExpDue + 0.01;
                   const isExpDiscExceeded = curExpDiscNum > exp.amount + 0.01;
                   const isExpCardOverLimit = isExpAllocExceeded || isExpDiscExceeded;
+                  const remainingExpDue = Math.max(0, exp.amount - curExpDiscNum - curExpAllocNum);
 
                   return (
                     <div
@@ -1657,9 +1698,32 @@ function ClearingDeskPage() {
                               Waiver / Discount: -{inr(curExpDiscNum)}
                             </div>
                           )}
+                          {curExpAllocNum > 0 && (
+                            <div className="text-[10px] font-mono font-semibold text-blue-600">
+                              Reimbursing Now: -{inr(curExpAllocNum)}
+                            </div>
+                          )}
                           <div className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400 mt-0.5">
                             Net Outlay Due: {inr(netExpDue)}
                           </div>
+                          {(curExpAllocNum > 0 || curExpDiscNum > 0) && (
+                            <div
+                              className={cn(
+                                "text-xs font-mono font-bold mt-1 pt-1 border-t border-border/40",
+                                remainingExpDue === 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-amber-600 dark:text-amber-400",
+                              )}
+                            >
+                              {remainingExpDue === 0 ? (
+                                <span className="inline-flex items-center gap-1">
+                                  Remaining: {inr(0)} (Fully Reimbursed ✓)
+                                </span>
+                              ) : (
+                                <span>Remaining Still Due: {inr(remainingExpDue)}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1739,9 +1803,25 @@ function ClearingDeskPage() {
                               </button>
                             </div>
                           ) : (
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              Max allowable reimbursement is {inr(netExpDue)}
-                            </p>
+                            <div className="flex items-center justify-between text-[10px] mt-1">
+                              <span className="text-muted-foreground">
+                                Max allowable: {inr(netExpDue)}
+                              </span>
+                              {curExpAllocNum > 0 && (
+                                <span
+                                  className={cn(
+                                    "font-mono font-semibold",
+                                    remainingExpDue === 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-amber-600 dark:text-amber-400",
+                                  )}
+                                >
+                                  {remainingExpDue === 0
+                                    ? "Remaining: ₹0 (Fully Reimbursed ✓)"
+                                    : `Remaining to Complete: ${inr(remainingExpDue)}`}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
