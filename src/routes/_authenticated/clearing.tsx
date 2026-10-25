@@ -265,14 +265,21 @@ function ClearingDeskPage() {
             inv?.invoice_items?.[0]?.jobs ||
             null;
           const linkedJob = invJob || (p.job_id && inv?.job_id === p.job_id ? p.jobs : null);
+          const isExpense = !linkedJob && !inv?.job_id;
+          const outlayDesc =
+            inv?.invoice_items?.[0]?.description ||
+            inv?.notes ||
+            inv?.description ||
+            "Client Outlay Settlement";
+
           clearedList.push({
             job_id: linkedJob?.id ?? inv?.job_id ?? undefined,
             job_code:
               linkedJob?.job_code ??
-              (inv?.invoice_no ? `Inv ${inv.invoice_no}` : p.jobs?.job_code ?? "—"),
+              (isExpense ? "Expense Outlay" : inv?.invoice_no ? `Inv ${inv.invoice_no}` : p.jobs?.job_code ?? "—"),
             title:
               linkedJob?.title ??
-              (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : p.jobs?.title ?? "Compliance Settlement"),
+              (isExpense ? outlayDesc : inv?.invoice_no ? `Invoice ${inv.invoice_no}` : p.jobs?.title ?? "Compliance Settlement"),
             allocated_amount: Number(pa.amount || 0),
             invoice_no: inv?.invoice_no ?? undefined,
           });
@@ -1208,7 +1215,16 @@ function ClearingDeskPage() {
                   className="flex items-center justify-between py-1.5 first:pt-0 last:pb-0"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                    {cj.job_code === "Expense Outlay" ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-semibold shrink-0"
+                      >
+                        Expense Outlay
+                      </Badge>
+                    ) : (
+                      <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                    )}
                     <span className="text-foreground">{cj.title}</span>
                     {cj.invoice_no && (
                       <Badge variant="outline" className="font-mono text-[10px]">
@@ -2558,7 +2574,16 @@ function ClearingDeskPage() {
                       >
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                            {cj.job_code === "Expense Outlay" ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-semibold shrink-0"
+                              >
+                                Expense Outlay
+                              </Badge>
+                            ) : (
+                              <span className="font-mono font-bold text-primary">{cj.job_code}</span>
+                            )}
                             {cj.invoice_no ? (
                               <Badge
                                 variant="outline"
