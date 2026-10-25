@@ -549,7 +549,6 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
         itemConfigs.length > 1
           ? `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
           : `JOB-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      let sharedJobCode: string | null = null;
 
       for (const config of itemConfigs) {
         const { item, svc, csId, periodStart, periodEnd, dueDate } = config;
@@ -595,8 +594,6 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           client_id: clientId,
           service_id: item.service_id,
           client_service_id: csId,
-          batch_id: submissionBatchId,
-          ...(sharedJobCode ? { job_code: sharedJobCode } : {}),
           title: jobTitle,
           fee: fee,
           discount: Math.min(ded, fee),
@@ -648,9 +645,6 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
           throw insertError;
         }
         currentJob = inserted;
-        if (!sharedJobCode && currentJob?.job_code) {
-          sharedJobCode = currentJob.job_code;
-        }
 
         // Save clearing record and record advance payment if entered
         if (currentJob && (adv > 0 || ded > 0)) {

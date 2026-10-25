@@ -212,7 +212,11 @@ function ClearingDeskPage() {
            jobs:job_id(id, job_code, title),
            payment_allocations(
              amount,
-             invoices(id, invoice_no, job_id, jobs:job_id(id, job_code, title))
+             invoices(
+               id, invoice_no, job_id,
+               jobs!invoices_job_id_fkey(id, job_code, title),
+               invoice_items(id, job_id, jobs(id, job_code, title))
+             )
            )`,
         )
         .order("payment_date", { ascending: false });
@@ -234,17 +238,19 @@ function ClearingDeskPage() {
 
         (p.payment_allocations ?? []).forEach((pa: any) => {
           const inv = pa.invoices;
-          const linkedJob = inv?.jobs || (p.job_id && inv?.job_id === p.job_id ? p.jobs : null);
+          const invJob =
+            inv?.jobs ||
+            inv?.invoice_items?.[0]?.jobs ||
+            null;
+          const linkedJob = invJob || (p.job_id && inv?.job_id === p.job_id ? p.jobs : null);
           clearedList.push({
-            job_id: linkedJob?.id ?? inv?.job_id ?? p.job_id ?? undefined,
+            job_id: linkedJob?.id ?? inv?.job_id ?? undefined,
             job_code:
               linkedJob?.job_code ??
-              p.jobs?.job_code ??
-              (inv?.invoice_no ? `Inv ${inv.invoice_no}` : "—"),
+              (inv?.invoice_no ? `Inv ${inv.invoice_no}` : p.jobs?.job_code ?? "—"),
             title:
               linkedJob?.title ??
-              p.jobs?.title ??
-              (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : "Compliance Settlement"),
+              (inv?.invoice_no ? `Invoice ${inv.invoice_no}` : p.jobs?.title ?? "Compliance Settlement"),
             allocated_amount: Number(pa.amount || 0),
             invoice_no: inv?.invoice_no ?? undefined,
           });

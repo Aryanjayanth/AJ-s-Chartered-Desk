@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Building,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,8 @@ function PaymentsPage() {
 
   // Bank & UPI options state
   const upiStorageKey = `ca_firm_upi_${currentFirm?.id || "global"}`;
+  const bankStorageKey = `ca_firm_bank_${currentFirm?.id || "global"}`;
+
   const [savedUpiAccounts, setSavedUpiAccounts] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(`ca_firm_upi_${currentFirm?.id || "global"}`);
@@ -122,19 +125,36 @@ function PaymentsPage() {
   const [selectedUpiAccount, setSelectedUpiAccount] = useState("");
   const [newUpiInput, setNewUpiInput] = useState("");
   const [showAddUpi, setShowAddUpi] = useState(false);
+  const [showManageUpi, setShowManageUpi] = useState(false);
 
+  const [savedBankAccounts, setSavedBankAccounts] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`ca_firm_bank_${currentFirm?.id || "global"}`);
+      return raw ? JSON.parse(raw) : [...INDIAN_BANKS];
+    } catch {
+      return [...INDIAN_BANKS];
+    }
+  });
   const [selectedBank, setSelectedBank] = useState("");
-  const [customBankInput, setCustomBankInput] = useState("");
-  const [showCustomBank, setShowCustomBank] = useState(false);
+  const [newBankInput, setNewBankInput] = useState("");
+  const [showAddBank, setShowAddBank] = useState(false);
+  const [showManageBank, setShowManageBank] = useState(false);
 
   useEffect(() => {
     if (!currentFirm?.id) return;
     try {
-      const raw = localStorage.getItem(`ca_firm_upi_${currentFirm.id}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
+      const rawUpi = localStorage.getItem(`ca_firm_upi_${currentFirm.id}`);
+      if (rawUpi) {
+        const parsed = JSON.parse(rawUpi);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setSavedUpiAccounts(Array.from(new Set(["Indian Bank UPI", ...parsed])));
+          setSavedUpiAccounts(parsed);
+        }
+      }
+      const rawBank = localStorage.getItem(`ca_firm_bank_${currentFirm.id}`);
+      if (rawBank) {
+        const parsedB = JSON.parse(rawBank);
+        if (Array.isArray(parsedB) && parsedB.length > 0) {
+          setSavedBankAccounts(parsedB);
         }
       }
     } catch {
@@ -163,6 +183,65 @@ function PaymentsPage() {
       };
     });
     toast.success(`Saved and selected UPI account: ${trimmed}`);
+  };
+
+  const handleDeleteUpiAccount = (accToDelete: string) => {
+    const updated = savedUpiAccounts.filter((a) => a !== accToDelete);
+    setSavedUpiAccounts(updated);
+    try {
+      localStorage.setItem(upiStorageKey, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    if (selectedUpiAccount === accToDelete) {
+      setSelectedUpiAccount("");
+      setPayForm((prev) => ({
+        ...prev,
+        narration: prev.narration.replace(/\[UPI Account:\s*[^\]]+\]\s*/gi, "").trim(),
+      }));
+    }
+    toast.success(`Removed UPI account "${accToDelete}"`);
+  };
+
+  const handleAddNewBankAccount = () => {
+    const trimmed = newBankInput.trim();
+    if (!trimmed) return;
+    const updated = Array.from(new Set([...savedBankAccounts, trimmed]));
+    setSavedBankAccounts(updated);
+    setSelectedBank(trimmed);
+    setNewBankInput("");
+    setShowAddBank(false);
+    try {
+      localStorage.setItem(bankStorageKey, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    setPayForm((prev) => {
+      const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
+      return {
+        ...prev,
+        narration: clean ? `[Bank: ${trimmed}] ${clean}` : `[Bank: ${trimmed}]`,
+      };
+    });
+    toast.success(`Saved and selected bank account: ${trimmed}`);
+  };
+
+  const handleDeleteBankAccount = (bankToDelete: string) => {
+    const updated = savedBankAccounts.filter((b) => b !== bankToDelete);
+    setSavedBankAccounts(updated);
+    try {
+      localStorage.setItem(bankStorageKey, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    if (selectedBank === bankToDelete) {
+      setSelectedBank("");
+      setPayForm((prev) => ({
+        ...prev,
+        narration: prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim(),
+      }));
+    }
+    toast.success(`Removed bank account "${bankToDelete}"`);
   };
 
   useEffect(() => {
@@ -487,15 +566,20 @@ function PaymentsPage() {
             </div>
           )}
 
-          {/* UPI Account Selection (Indian Bank at top, persistent custom firm accounts) */}
+          {/* UPI Account Selection (Indian Bank at top, persistent custom firm accounts with deletion) */}
           {payForm.mode === "upi" && (
             <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 p-3">
-              <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-                <span>Received into UPI Account / Number</span>
-                <span className="text-[11px] font-normal text-muted-foreground">
-                  Select which firm account received the funds
-                </span>
-              </label>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-foreground">Received into UPI Account / Number</span>
+                <button
+                  type="button"
+                  onClick={() => setShowManageUpi((prev) => !prev)}
+                  className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                >
+                  {showManageUpi ? "Close Account List" : `Manage / Delete Accounts (${savedUpiAccounts.length})`}
+                </button>
+              </div>
+
               <NativeSelect
                 value={selectedUpiAccount}
                 onChange={(e) => {
@@ -564,77 +648,63 @@ function PaymentsPage() {
                   </div>
                 </div>
               )}
+
+              {/* Saved UPI Accounts Management / Delete List */}
+              {showManageUpi && (
+                <div className="rounded-lg border border-border/80 bg-background p-2.5 mt-2 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-foreground border-b pb-1.5">
+                    <span>Saved UPI Accounts (Click trash to delete)</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">
+                      {savedUpiAccounts.length} account{savedUpiAccounts.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {savedUpiAccounts.map((acc) => (
+                      <div
+                        key={acc}
+                        className="flex items-center justify-between px-2 py-1 rounded text-xs bg-muted/30 hover:bg-muted/60 transition-colors"
+                      >
+                        <span className="truncate pr-2 font-mono text-[11px]">{acc}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUpiAccount(acc)}
+                          title={`Delete ${acc}`}
+                          className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10 cursor-pointer shrink-0 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Bank Transfer / Cheque Bank Selection (Indian Bank at top) */}
+          {/* Bank Transfer / Cheque Bank Selection (Indian Bank at top, persistent firm accounts with deletion) */}
           {(payForm.mode === "bank_transfer" || payForm.mode === "cheque") && (
             <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 p-3">
-              <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-                <span>Receiving Bank (To / From)</span>
-                <span className="text-[11px] font-normal text-muted-foreground">
-                  Select bank receiving the transfer
-                </span>
-              </label>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-foreground">Receiving Bank Account (To / From)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowManageBank((prev) => !prev)}
+                  className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                >
+                  {showManageBank ? "Close Bank List" : `Manage / Delete Accounts (${savedBankAccounts.length})`}
+                </button>
+              </div>
+
               <NativeSelect
                 value={selectedBank}
                 onChange={(e) => {
                   const b = e.target.value;
-                  setSelectedBank(b);
-                  setShowCustomBank(b === "__custom__");
-                  if (b && b !== "__custom__") {
-                    setPayForm((prev) => {
-                      const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
-                      return {
-                        ...prev,
-                        narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
-                      };
-                    });
-                  }
-                }}
-              >
-                <option value="">Select bank…</option>
-                {INDIAN_BANKS.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-                <option value="__custom__">+ Enter Custom Bank Name…</option>
-              </NativeSelect>
-
-              {showCustomBank && (
-                <div className="flex items-center gap-2 mt-2">
-                  <Input
-                    placeholder="Enter custom bank name…"
-                    value={customBankInput}
-                    onChange={(e) => setCustomBankInput(e.target.value)}
-                    className="h-8 text-xs"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (!customBankInput.trim()) return;
-                        const b = customBankInput.trim();
-                        setSelectedBank(b);
-                        setShowCustomBank(false);
-                        setPayForm((prev) => {
-                          const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
-                          return {
-                            ...prev,
-                            narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
-                          };
-                        });
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-8 text-xs shrink-0 cursor-pointer"
-                    onClick={() => {
-                      if (!customBankInput.trim()) return;
-                      const b = customBankInput.trim();
-                      setSelectedBank(b);
-                      setShowCustomBank(false);
+                  if (b === "__add_new__") {
+                    setShowAddBank(true);
+                  } else {
+                    setSelectedBank(b);
+                    setShowAddBank(false);
+                    if (b) {
                       setPayForm((prev) => {
                         const clean = prev.narration.replace(/\[Bank:\s*[^\]]+\]\s*/gi, "").trim();
                         return {
@@ -642,19 +712,85 @@ function PaymentsPage() {
                           narration: clean ? `[Bank: ${b}] ${clean}` : `[Bank: ${b}]`,
                         };
                       });
-                    }}
-                  >
-                    Set Bank
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-xs shrink-0 cursor-pointer"
-                    onClick={() => setShowCustomBank(false)}
-                  >
-                    Cancel
-                  </Button>
+                    }
+                  }
+                }}
+              >
+                <option value="">Select bank account…</option>
+                {savedBankAccounts.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+                <option value="__add_new__">+ Add / Save New Bank Account or Number…</option>
+              </NativeSelect>
+
+              {showAddBank && (
+                <div className="rounded border border-dashed border-primary/40 bg-background/80 p-2.5 mt-2 space-y-1.5">
+                  <div className="text-[11px] font-medium text-foreground">
+                    Add & Save Practice Bank Account or Branch
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="e.g. Indian Bank - Current A/c 50123456 or Kotak Bank"
+                      value={newBankInput}
+                      onChange={(e) => setNewBankInput(e.target.value)}
+                      className="h-8 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddNewBankAccount();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 text-xs shrink-0 cursor-pointer"
+                      onClick={handleAddNewBankAccount}
+                    >
+                      Save Account
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-xs shrink-0 cursor-pointer"
+                      onClick={() => setShowAddBank(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Saved Bank Accounts Management / Delete List */}
+              {showManageBank && (
+                <div className="rounded-lg border border-border/80 bg-background p-2.5 mt-2 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-foreground border-b pb-1.5">
+                    <span>Saved Bank Accounts (Click trash to delete)</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">
+                      {savedBankAccounts.length} account{savedBankAccounts.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {savedBankAccounts.map((b) => (
+                      <div
+                        key={b}
+                        className="flex items-center justify-between px-2 py-1 rounded text-xs bg-muted/30 hover:bg-muted/60 transition-colors"
+                      >
+                        <span className="truncate pr-2 font-mono text-[11px]">{b}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBankAccount(b)}
+                          title={`Delete ${b}`}
+                          className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10 cursor-pointer shrink-0 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
