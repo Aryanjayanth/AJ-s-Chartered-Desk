@@ -767,6 +767,20 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
 
   if (!open) return null;
 
+  if (addClientOpen) {
+    return (
+      <ClientForm
+        open={addClientOpen}
+        onOpenChange={setAddClientOpen}
+        onSaved={(newClient) => {
+          qc.invalidateQueries({ queryKey: ["client_lookup"] });
+          setClientId(newClient.id);
+          setAddClientOpen(false);
+        }}
+      />
+    );
+  }
+
   const selectedServiceIds = new Set(items.map((it) => it.service_id));
 
   return (
@@ -928,8 +942,7 @@ export function JobForm({ open, onOpenChange, initialClientId }: JobFormProps) {
                 onChange={(id) => setClientId(id)}
                 placeholder="Search and select client by name or code…"
                 onAddNewClient={() => {
-                  onOpenChange(false);
-                  navigate({ to: "/clients", search: { new: true } });
+                  setAddClientOpen(true);
                 }}
               />
             </div>

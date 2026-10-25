@@ -435,7 +435,7 @@ function PaymentsPage() {
               value={payClientId}
               onChange={handlePayClientChange}
               placeholder="Search and select client…"
-              onAddNewClient={() => navigate({ to: "/clients", search: { new: true } })}
+              onAddNewClient={() => setAddClientOpen(true)}
             />
           </Field>
 
@@ -1090,6 +1090,20 @@ function PaymentsPage() {
       </div>
     );
   };
+
+  if (addClientOpen) {
+    return (
+      <ClientForm
+        open={addClientOpen}
+        onOpenChange={setAddClientOpen}
+        onSaved={(newClient) => {
+          qc.invalidateQueries({ queryKey: ["client_lookup"] });
+          handlePayClientChange(newClient.id);
+          setAddClientOpen(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
