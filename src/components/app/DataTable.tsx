@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import {
   ArrowUpDown,
   ChevronLeft,
@@ -55,7 +55,7 @@ export function DataTable<T extends { id: string | number }>({
   loading,
   empty = "No records found",
   toolbar,
-  pageSize = 15,
+  pageSize: initialPageSize = 100,
   onRowClick,
   footer,
   exportFilename,
@@ -71,7 +71,14 @@ export function DataTable<T extends { id: string | number }>({
   const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
   const [dir, setDir] = useState<1 | -1>(defaultSortDir);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(initialPageSize);
   const [internalSelectedIds, setInternalSelectedIds] = useState<(string | number)[]>([]);
+
+  useEffect(() => {
+    if (initialPageSize) {
+      setPageSize(initialPageSize);
+    }
+  }, [initialPageSize]);
 
   const isControlled = controlledSelectedIds !== undefined;
   const selectedIds = isControlled ? controlledSelectedIds : internalSelectedIds;
@@ -378,33 +385,58 @@ export function DataTable<T extends { id: string | number }>({
           {footer}
         </table>
       </div>
-      <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t px-3 py-2 text-xs text-muted-foreground">
         <span>
-          {filtered.length} record{filtered.length === 1 ? "" : "s"}
+          Showing {filtered.length === 0 ? 0 : cur * pageSize + 1}–
+          {Math.min((cur + 1) * pageSize, filtered.length)} of {filtered.length} record
+          {filtered.length === 1 ? "" : "s"}
           {selectedIds.length > 0 && ` (${selectedIds.length} selected)`}
         </span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            disabled={cur === 0}
-            onClick={() => setPage(cur - 1)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span>
-            Page {cur + 1} / {pages}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            disabled={cur >= pages - 1}
-            onClick={() => setPage(cur + 1)}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span>Rows per page:</span>
+            <select
+              value={pageSize >= 999999 ? "all" : String(pageSize)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setPageSize(val === "all" ? 999999 : Number(val));
+                setPage(0);
+              }}
+              className="h-7 rounded border border-border/60 bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={cur === 0}
+              onClick={() => setPage(cur - 1)}
+              title="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span>
+              Page {cur + 1} of {pages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={cur >= pages - 1}
+              onClick={() => setPage(cur + 1)}
+              title="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>

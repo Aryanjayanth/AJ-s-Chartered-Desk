@@ -519,7 +519,6 @@ function ClientsPage() {
               ? "No clients yet — add your first client."
               : "No clients match your search or filters."
           }
-          pageSize={20}
           exportFilename="clients"
           onRowClick={(c) => go(c.id)}
           columns={[

@@ -99,7 +99,6 @@ function ReportsPage() {
               .from("audit_logs")
               .select("*")
               .order("created_at", { ascending: false })
-              .limit(1000)
           : Promise.resolve({ data: [] }),
       ]);
       return {
@@ -474,7 +473,6 @@ function ReportsPage() {
         key={r}
         rows={rows}
         loading={q.isLoading}
-        pageSize={25}
         empty="No data for these filters."
         search={(x) => Object.values(x).join(" ")}
         columns={cols.map((k) => ({

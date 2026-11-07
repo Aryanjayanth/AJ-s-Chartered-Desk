@@ -89,8 +89,7 @@ function ExpensesPage() {
         .from("jobs")
         .select("id,job_code,title,client_id")
         .neq("status", "cancelled")
-        .order("created_at", { ascending: false })
-        .limit(500);
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
     },

@@ -206,8 +206,7 @@ function ClientProfile() {
           .from("audit_logs")
           .select("id,action,module,created_at,record_id,user_id,reason")
           .in("record_id", ids)
-          .order("created_at", { ascending: false })
-          .limit(100);
+          .order("created_at", { ascending: false });
         activity = (a.data as typeof activity) ?? [];
       }
       return {

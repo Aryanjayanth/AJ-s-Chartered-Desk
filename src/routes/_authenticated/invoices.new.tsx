@@ -117,8 +117,7 @@ function NewInvoicePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("id, clients(client_code, name)")
-        .limit(500);
+        .select("id, clients(client_code, name)");
       if (error) throw error;
       const m: Record<string, { client_code: string; name: string }> = {};
       for (const r of data ?? []) {

@@ -159,8 +159,7 @@ function AuditPage() {
       let qq = supabase
         .from("audit_logs")
         .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1000);
+        .order("created_at", { ascending: false });
 
       if (mod) qq = qq.eq("module", mod);
       if (act) qq = qq.ilike("action", `%${act}%`);
@@ -201,7 +200,6 @@ function AuditPage() {
       <DataTable<AuditRow>
         rows={q.data}
         loading={q.isLoading}
-        pageSize={20}
         empty="No audit records match the current filters."
         searchPlaceholder="Search user, module, action, record, reason…"
         search={(a) =>
