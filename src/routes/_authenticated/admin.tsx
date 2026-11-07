@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -19,6 +19,7 @@ import {
   Copy,
   ExternalLink,
   Sparkles,
+  Pencil,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { AvatarPicker, EntityAvatar } from "@/components/app/EntityAvatar";
 import { useSuperAdmin } from "@/hooks/use-firm";
 import { useAdminPrivacy } from "@/hooks/use-admin-privacy";
-import { createFirm, deleteFirm, switchActiveFirm } from "@/lib/firms.functions";
+import { createFirm, deleteFirm, switchActiveFirm, updateFirm } from "@/lib/firms.functions";
 import { InviteDialog } from "@/components/app/InviteDialog";
 import { errMsg, fmtDate, inr } from "@/lib/format";
 
@@ -61,6 +62,7 @@ function AdminPage() {
   const [generateLinkOpen, setGenerateLinkOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [term, setTerm] = useState("");
+  const [editFirmTarget, setEditFirmTarget] = useState<any | null>(null);
   const runDelete = useServerFn(deleteFirm);
   const [deleting, setDeleting] = useState(false);
 
@@ -298,15 +300,24 @@ function AdminPage() {
                     <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                   </Button>
 
-                  {/* Secondary Actions in Balanced 2-Column Grid */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Secondary Actions in Balanced 3-Column Grid */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs font-normal"
+                      onClick={() => setEditFirmTarget(f)}
+                    >
+                      <Pencil className="mr-1 h-3 w-3" />
+                      Edit
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-8 text-xs font-normal"
                       onClick={() => setInviteFor({ id: f.id, name: f.name })}
                     >
-                      Invite / Link
+                      Invite
                     </Button>
                     <Button
                       size="sm"
@@ -368,6 +379,13 @@ function AdminPage() {
       </Dialog>
 
       <NewFirmDialog open={open} onOpenChange={setOpen} />
+      <EditFirmDialog
+        firm={editFirmTarget}
+        open={Boolean(editFirmTarget)}
+        onOpenChange={(o) => {
+          if (!o) setEditFirmTarget(null);
+        }}
+      />
       <InviteDialog firm={inviteFor} onClose={() => setInviteFor(null)} />
       <InviteDialog open={generateLinkOpen} onClose={() => setGenerateLinkOpen(false)} />
     </div>
@@ -643,6 +661,107 @@ function NewFirmDialog({
             </DialogFooter>
           </>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditFirmDialog({
+  firm,
+  open,
+  onOpenChange,
+}: {
+  firm: any | null;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const runUpdate = useServerFn(updateFirm);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [logo, setLogo] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (firm) {
+      setName(firm.name || "");
+      setPhone(firm.phone || "");
+      setCity(firm.city || "");
+      setLogo(firm.logo_url || null);
+    }
+  }, [firm]);
+
+  const save = async () => {
+    if (!name.trim()) return toast.error("Firm name is required");
+    if (!firm?.id) return;
+    setBusy(true);
+    try {
+      await runUpdate({
+        data: {
+          firmId: firm.id,
+          name: name.trim(),
+          phone: phone.trim() || null,
+          city: city.trim() || null,
+          logoUrl: logo,
+        },
+      });
+      toast.success("Firm details updated successfully");
+      qc.invalidateQueries({ queryKey: ["admin-firms"] });
+      qc.invalidateQueries({ queryKey: ["practice-firms"] });
+      qc.invalidateQueries({ queryKey: ["current-firm"] });
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Firm Details</DialogTitle>
+          <DialogDescription>
+            Update the firm name, contact phone, city, or logo.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3.5">
+          <AvatarPicker name={name} value={logo} onChange={setLogo} square />
+          <Field label="Firm name">
+            <Input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Mehta & Associates"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Phone">
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+91 98765 43210"
+              />
+            </Field>
+            <Field label="City">
+              <Input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="e.g. Mumbai"
+              />
+            </Field>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

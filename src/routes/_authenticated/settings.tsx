@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +14,7 @@ import { CompleteBackupButton } from "@/components/app/CompleteBackupButton";
 import { useRoles } from "@/hooks/use-roles";
 import { useCurrentFirm, useSuperAdmin } from "@/hooks/use-firm";
 import { AvatarPicker } from "@/components/app/EntityAvatar";
+import { updateFirm } from "@/lib/firms.functions";
 import { errMsg } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -33,6 +35,7 @@ export function SettingsPage() {
   const { isSuperAdmin, loading: saLoading } = useSuperAdmin();
   const qc = useQueryClient();
   const { data: currentFirm } = useCurrentFirm();
+  const runUpdateFirm = useServerFn(updateFirm);
 
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState<Record<string, string>>({
@@ -158,19 +161,20 @@ export function SettingsPage() {
 
       // 2. Sync firm name, logo, phone to firms table
       if (firmId) {
-        await supabase
-          .from("firms")
-          .update({
+        await runUpdateFirm({
+          data: {
+            firmId,
             name: f.firm_name.trim(),
-            logo_url: logo,
             phone: f.phone?.trim() || null,
-          })
-          .eq("id", firmId);
+            logoUrl: logo,
+          },
+        });
       }
 
       toast.success("Firm settings saved successfully");
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["current-firm"] });
+      qc.invalidateQueries({ queryKey: ["practice-firms"] });
     } catch (error) {
       toast.error(errMsg(error));
     } finally {

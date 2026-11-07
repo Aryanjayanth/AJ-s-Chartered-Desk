@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Mail, Phone, Pencil, Plus, ArrowLeft, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +26,7 @@ import { useCurrentFirm } from "@/hooks/use-firm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { readList } from "@/lib/supabase-read";
 import { firstDuePreview, monthLabel } from "@/lib/service-options";
+import { updateClientService, deleteClientService } from "@/lib/firms.functions";
 import { cn } from "@/lib/utils";
 import {
   errMsg,
@@ -60,11 +62,16 @@ function ClientProfile() {
   // Clients or the Recurring module in Postgres, so mirror that here.
   const canLinkService = canCreate("recurring") || canCreate("clients");
   const canEditService = canEdit("recurring") || canEdit("clients");
+  const canDeleteService = canDelete("recurring") || canDelete("clients") || isManager;
   const { data: profiles } = useProfiles();
   const pname = (u: string | null) =>
     profiles?.find((p) => p.id === u)?.full_name ?? (u ? "Staff" : "System");
   const [edit, setEdit] = useState(false);
   const [link, setLink] = useState(false);
+  const [editingCs, setEditingCs] = useState<any | null>(null);
+  const [deletingCs, setDeletingCs] = useState<any | null>(null);
+  const [deletingCsBusy, setDeletingCsBusy] = useState(false);
+  const runDeleteCs = useServerFn(deleteClientService);
   const qc = useQueryClient();
 
   const handleDeleteClient = async () => {
@@ -82,6 +89,23 @@ function ClientProfile() {
     }
   };
 
+  const handleDeleteCs = async () => {
+    if (!deletingCs?.id) return;
+    setDeletingCsBusy(true);
+    try {
+      await runDeleteCs({ data: { clientServiceId: deletingCs.id } });
+      toast.success("Service assignment removed");
+      setDeletingCs(null);
+      qc.invalidateQueries({ queryKey: ["client360"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["client-services"] });
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeletingCsBusy(false);
+    }
+  };
+
   const q = useQuery({
     queryKey: ["client360", id, isFinance, isManager, canSeePayments],
     queryFn: async () => {
@@ -95,7 +119,7 @@ function ClientProfile() {
           const r = await supabase
             .from("client_services")
             .select(
-              "id,client_id,service_id,agreed_fee,frequency,start_date,end_date,due_days,assigned_staff,status,notes,created_at,services(name,service_type,auto_invoice),profiles!client_services_assigned_staff_fkey(full_name)",
+              "id,client_id,service_id,agreed_fee,frequency,start_date,end_date,due_days,assigned_staff,status,notes,auto_invoice,created_at,services(name,service_type,auto_invoice),profiles!client_services_assigned_staff_fkey(full_name)",
             )
             .eq("client_id", id)
             .order("created_at");
@@ -107,7 +131,7 @@ function ClientProfile() {
               service_id: x.service_id,
               service_name: x.services?.name ?? null,
               service_type: x.services?.service_type ?? null,
-              auto_invoice: x.services?.auto_invoice ?? null,
+              auto_invoice: (x as any).auto_invoice ?? x.services?.auto_invoice ?? false,
               agreed_fee: x.agreed_fee,
               frequency: x.frequency,
               start_date: x.start_date,
@@ -478,30 +502,64 @@ function ClientProfile() {
               {
                 key: "a",
                 header: "",
-                render: (r) =>
-                  canEditService && (
-                    <div className="flex gap-1">
-                      {r.status === "active" ? (
-                        <Button size="sm" variant="ghost" onClick={() => toggleCs(r.id, "paused")}>
-                          Pause
-                        </Button>
-                      ) : r.status === "paused" ? (
-                        <Button size="sm" variant="ghost" onClick={() => toggleCs(r.id, "active")}>
-                          Resume
-                        </Button>
-                      ) : null}
-                      {r.status !== "stopped" && (
+                render: (r) => (
+                  <div className="flex items-center justify-end gap-1">
+                    {canEditService && (
+                      <>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="text-destructive"
-                          onClick={() => toggleCs(r.id, "stopped")}
+                          className="h-8 px-2 text-xs"
+                          onClick={() => setEditingCs(r)}
+                          title="Edit Service Assignment"
                         >
-                          Stop
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Edit
                         </Button>
-                      )}
-                    </div>
-                  ),
+                        {r.status === "active" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => toggleCs(r.id, "paused")}
+                          >
+                            Pause
+                          </Button>
+                        ) : r.status === "paused" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => toggleCs(r.id, "active")}
+                          >
+                            Resume
+                          </Button>
+                        ) : null}
+                        {r.status !== "stopped" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                            onClick={() => toggleCs(r.id, "stopped")}
+                          >
+                            Stop
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {canDeleteService && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeletingCs(r)}
+                        title="Delete this service assignment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                ),
               },
             ]}
           />
@@ -724,6 +782,25 @@ function ClientProfile() {
         title={`Delete Client "${c.name}"?`}
         description="Are you sure you want to permanently delete this client? Clients with financial records (invoices, jobs, or payments) cannot be deleted."
         onConfirm={handleDeleteClient}
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(deletingCs)}
+        onOpenChange={(o) => {
+          if (!o) setDeletingCs(null);
+        }}
+        title="Remove Assigned Service?"
+        description={`Are you sure you want to remove "${deletingCs?.service_name || "this service"}" from ${c.name}? Any unbilled recurring jobs linked to this assignment will be detached.`}
+        onConfirm={handleDeleteCs}
+      />
+
+      <EditClientServiceDialog
+        open={Boolean(editingCs)}
+        onOpenChange={(o) => {
+          if (!o) setEditingCs(null);
+        }}
+        cs={editingCs}
+        clientId={id}
       />
 
       <LinkServiceDialog open={link} onOpenChange={setLink} clientId={id} />
@@ -978,6 +1055,203 @@ function LinkServiceDialog({
             Cancel
           </Button>
           <Button onClick={save}>Link</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditClientServiceDialog({
+  open,
+  onOpenChange,
+  cs,
+  clientId,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  cs: any | null;
+  clientId: string;
+}) {
+  const qc = useQueryClient();
+  const { data: profiles } = useProfiles();
+  const runUpdate = useServerFn(updateClientService);
+  const [busy, setBusy] = useState(false);
+
+  const svcs = useQuery({
+    queryKey: ["services-active"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("services")
+        .select("id, name, billing_type, frequency, auto_invoice")
+        .eq("active", true)
+        .order("name");
+      return data ?? [];
+    },
+  });
+
+  const [f, setF] = useState({
+    service_id: "",
+    agreed_fee: "",
+    frequency: "monthly",
+    start_date: today(),
+    end_date: "",
+    due_days: "20",
+    assigned_staff: "",
+    status: "active",
+    notes: "",
+    auto_invoice: false,
+  });
+
+  useEffect(() => {
+    if (cs) {
+      setF({
+        service_id: cs.service_id || "",
+        agreed_fee: cs.agreed_fee != null ? String(cs.agreed_fee) : "",
+        frequency: cs.frequency || "monthly",
+        start_date: cs.start_date || today(),
+        end_date: cs.end_date || "",
+        due_days: cs.due_days != null ? String(cs.due_days) : "20",
+        assigned_staff: cs.assigned_staff || "",
+        status: cs.status || "active",
+        notes: cs.notes || "",
+        auto_invoice: cs.auto_invoice ?? false,
+      });
+    }
+  }, [cs]);
+
+  const set = (k: keyof typeof f) => (e: { target: { value: any } }) =>
+    setF((p) => ({ ...p, [k]: e.target.value }));
+
+  const pick = (sid: string) => {
+    const s = svcs.data?.find((x) => x.id === sid);
+    setF((p) => ({
+      ...p,
+      service_id: sid,
+      frequency: s?.frequency === "one_time" ? "one_time" : p.frequency,
+      auto_invoice: s?.auto_invoice ?? p.auto_invoice,
+    }));
+  };
+
+  const preview = firstDuePreview(f.start_date, f.frequency, Number(f.due_days) || 0);
+
+  const save = async () => {
+    if (!cs?.id) return;
+    if (!f.service_id) return toast.error("Choose a service");
+    if (!(Number(f.agreed_fee) >= 0) || f.agreed_fee === "")
+      return toast.error("Enter a valid fee");
+    if (f.end_date && f.end_date < f.start_date)
+      return toast.error("End date must be after start date");
+
+    setBusy(true);
+    try {
+      await runUpdate({
+        data: {
+          id: cs.id,
+          serviceId: f.service_id,
+          agreedFee: Number(f.agreed_fee),
+          frequency: f.frequency as any,
+          startDate: f.start_date,
+          endDate: f.end_date || null,
+          dueDays: Number(f.due_days) || 0,
+          assignedStaff: f.assigned_staff || null,
+          status: f.status as any,
+          notes: f.notes || null,
+          autoInvoice: f.auto_invoice,
+        },
+      });
+
+      toast.success("Service assignment updated");
+      qc.invalidateQueries({ queryKey: ["client360"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["client-services"] });
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Service Assignment</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Service *" className="sm:col-span-2">
+            <NativeSelect value={f.service_id} onChange={(e) => pick(e.target.value)}>
+              <option value="">Select…</option>
+              {svcs.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Agreed Fee (₹) *">
+            <Input type="number" min={0} value={f.agreed_fee} onChange={set("agreed_fee")} />
+          </Field>
+          <Field label="Frequency">
+            <NativeSelect value={f.frequency} onChange={set("frequency")}>
+              {Object.entries(FREQS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Status">
+            <NativeSelect value={f.status} onChange={set("status")}>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="stopped">Stopped</option>
+            </NativeSelect>
+          </Field>
+          <Field label="Start Date">
+            <Input type="date" value={f.start_date} onChange={set("start_date")} />
+          </Field>
+          <Field label="End Date">
+            <Input type="date" value={f.end_date} onChange={set("end_date")} />
+          </Field>
+          <Field label="Due (days after period end)">
+            <Input type="number" min={0} value={f.due_days} onChange={set("due_days")} />
+          </Field>
+          {preview && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs sm:col-span-2">
+              <div className="mb-1 font-medium text-foreground">Estimated Next Due</div>
+              <div className="text-muted-foreground">
+                Period{" "}
+                <span className="font-medium text-foreground">
+                  {monthLabel(preview.periodStart)} ({fmtDate(preview.periodStart)} to{" "}
+                  {fmtDate(preview.periodEnd)})
+                </span>{" "}
+                &rarr; due{" "}
+                <span className="font-medium text-foreground">{fmtDate(preview.dueDate)}</span>
+              </div>
+            </div>
+          )}
+          <Field label="Assigned Staff">
+            <NativeSelect value={f.assigned_staff} onChange={set("assigned_staff")}>
+              <option value="">—</option>
+              {profiles?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name ?? p.email}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Notes" className="sm:col-span-2">
+            <Input value={f.notes} onChange={set("notes")} />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? "Saving…" : "Save Changes"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

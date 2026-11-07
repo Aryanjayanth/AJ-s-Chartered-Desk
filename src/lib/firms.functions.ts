@@ -837,6 +837,143 @@ export const updateInvoiceBillingDetails = createServerFn({ method: "POST" })
     return { success: true };
   });
 
+export const updateFirm = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        firmId: z.string().uuid(),
+        name: z.string().trim().min(2, "Firm name must be at least 2 characters").max(150),
+        phone: z.string().trim().max(20).optional().nullable(),
+        city: z.string().trim().max(80).optional().nullable(),
+        logoUrl: z.string().max(200000).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+    const { data: currentFirm } = await sb.rpc("current_firm_id");
+    if (!isSuper && currentFirm !== data.firmId) {
+      throw new Error("Not authorised: You can only edit your active firm");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1. Update firms table
+    const { error: firmErr } = await supabaseAdmin
+      .from("firms")
+      .update({
+        name: data.name,
+        phone: data.phone || null,
+        city: data.city || null,
+        logo_url: data.logoUrl || null,
+      })
+      .eq("id", data.firmId);
+    if (firmErr) throw new Error(firmErr.message);
+
+    // 2. Update settings table
+    await supabaseAdmin
+      .from("settings")
+      .update({
+        firm_name: data.name,
+        phone: data.phone || null,
+      })
+      .eq("firm_id", data.firmId);
+
+    return { success: true };
+  });
+
+export const updateClientService = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        serviceId: z.string().uuid().optional(),
+        agreedFee: z.number().min(0),
+        frequency: z.enum(["one_time", "monthly", "quarterly", "half_yearly", "yearly"]),
+        startDate: z.string(),
+        endDate: z.string().nullable().optional(),
+        dueDays: z.number().default(20),
+        assignedStaff: z.string().uuid().nullable().optional(),
+        status: z.enum(["active", "paused", "stopped"]).default("active"),
+        notes: z.string().nullable().optional(),
+        autoInvoice: z.boolean().default(false),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canEditRecurring } = await sb.rpc("has_capability", {
+      _module: "recurring",
+      _action: "edit",
+    });
+    const { data: canEditClients } = await sb.rpc("has_capability", {
+      _module: "clients",
+      _action: "edit",
+    });
+    if (!canEditRecurring && !canEditClients) {
+      throw new Error("Not authorised to edit service assignments");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const updates: Record<string, any> = {
+      agreed_fee: data.agreedFee,
+      frequency: data.frequency,
+      start_date: data.startDate,
+      end_date: data.endDate || null,
+      due_days: data.dueDays,
+      assigned_staff: data.assignedStaff || null,
+      status: data.status,
+      notes: data.notes?.trim() || null,
+      auto_invoice: data.autoInvoice,
+    };
+    if (data.serviceId) {
+      updates.service_id = data.serviceId;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("client_services")
+      .update(updates as any)
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+
+    return { success: true };
+  });
+
+export const deleteClientService = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ clientServiceId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: canDeleteRecurring } = await sb.rpc("has_capability", {
+      _module: "recurring",
+      _action: "delete",
+    });
+    const { data: canDeleteClients } = await sb.rpc("has_capability", {
+      _module: "clients",
+      _action: "delete",
+    });
+    if (!canDeleteRecurring && !canDeleteClients) {
+      throw new Error("Not authorised to delete service assignments");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Clean up or detach recurring jobs linked to this client_service so delete succeeds cleanly
+    await supabaseAdmin
+      .from("jobs")
+      .update({ client_service_id: null })
+      .eq("client_service_id", data.clientServiceId);
+
+    const { error } = await supabaseAdmin
+      .from("client_services")
+      .delete()
+      .eq("id", data.clientServiceId);
+    if (error) throw new Error(error.message);
+
+    return { success: true };
+  });
+
 export const deleteJobs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
