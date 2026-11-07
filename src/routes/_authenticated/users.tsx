@@ -52,11 +52,15 @@ function UsersPage() {
   const runCancelInvite = useServerFn(cancelFirmInvite);
 
   const q = useQuery({
-    queryKey: ["users-roles"],
-    enabled: isManager,
+    queryKey: ["users-roles", firm?.id],
+    enabled: isManager && !!firm?.id,
     queryFn: async () => {
       const [p, r] = await Promise.all([
-        supabase.from("profiles").select("*").order("created_at"),
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("firm_id", firm!.id)
+          .order("created_at"),
         supabase.from("user_roles").select("*"),
       ]);
       if (p.error) throw p.error;

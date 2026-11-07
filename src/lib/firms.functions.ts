@@ -332,6 +332,16 @@ export const kickUserFromFirm = createServerFn({ method: "POST" })
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+    // Guard: Platform super administrators cannot be kicked from any firm
+    const { data: targetIsSuper } = await supabaseAdmin
+      .from("platform_admins")
+      .select("user_id")
+      .eq("user_id", data.targetUserId)
+      .maybeSingle();
+    if (targetIsSuper) {
+      throw new Error("Platform administrators cannot be removed from a practice firm.");
+    }
+
     // 1. Delete all user_roles for this user
     await supabaseAdmin.from("user_roles").delete().eq("user_id", data.targetUserId);
 
@@ -710,12 +720,19 @@ export const switchActiveFirm = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const userId = context.userId;
+    const sb = context.supabase;
+    const { data: isSuper } = await sb.rpc("is_super_admin");
+
+    const updates: Record<string, any> = {
+      acting_firm_id: data.firmId,
+    };
+    if (!isSuper && data.firmId) {
+      updates.firm_id = data.firmId;
+    }
+
     const { error } = await supabaseAdmin
       .from("profiles")
-      .update({
-        acting_firm_id: data.firmId,
-        firm_id: data.firmId || undefined,
-      })
+      .update(updates as any)
       .eq("id", userId);
     if (error) throw new Error(error.message);
     return { success: true };
