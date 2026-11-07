@@ -182,10 +182,19 @@ async function doInvite(input: z.infer<typeof inviteSchema>) {
     .maybeSingle();
 
   if (prof) {
-    if (prof.firm_id && prof.firm_id !== input.firmId) {
-      throw new Error("This email already belongs to another firm");
+    const isDefaultFirm = prof.firm_id === "00000000-0000-0000-0000-000000000001";
+    if (prof.firm_id && prof.firm_id !== input.firmId && !isDefaultFirm) {
+      console.warn(`[doInvite] Reassigning user ${email} from firm ${prof.firm_id} to ${input.firmId}`);
     }
-    await supabaseAdmin.from("profiles").update({ firm_id: input.firmId }).eq("id", prof.id);
+    await supabaseAdmin
+      .from("profiles")
+      .update({
+        firm_id: input.firmId,
+        acting_firm_id: input.firmId,
+        full_name: input.fullName || undefined,
+      })
+      .eq("id", prof.id);
+
     await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: prof.id, role: input.role }, { onConflict: "user_id,role" });
@@ -520,6 +529,7 @@ export const verifyOtpAndSetPassword = createServerFn({ method: "POST" })
         .from("profiles")
         .update({
           firm_id: firmId,
+          acting_firm_id: firmId,
           full_name: fullName || undefined,
         })
         .eq("id", userId);
@@ -575,6 +585,18 @@ export const createFirm = createServerFn({ method: "POST" })
       role: "admin",
       redirectTo: data.redirectTo,
     });
+
+    // Switch acting firm immediately so the newly created/linked firm is active
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin
+        .from("profiles")
+        .update({ acting_firm_id: firmId as string })
+        .eq("id", context.userId);
+    } catch {
+      // ignore
+    }
+
     return { firmId: firmId as string, ...r };
   });
 
@@ -613,18 +635,72 @@ export const fetchPracticeFirms = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const sb = context.supabase;
     const { data: isSuper } = await sb.rpc("is_super_admin");
-    if (!isSuper) throw new Error("Not authorised");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin
+    const userId = context.userId;
+    const userEmail = (context.claims as { email?: string } | undefined)?.email?.toLowerCase();
+
+    if (isSuper) {
+      const { data, error } = await supabaseAdmin
+        .from("firms")
+        .select("id, name, logo_url, owner_email, phone, city, status")
+        .eq("status", "active")
+        .order("name");
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((f) => ({
+        ...f,
+        role: "admin",
+        is_current: false,
+      }));
+    }
+
+    // For non-super admins: find all firms where the user is linked
+    const { data: prof } = await supabaseAdmin
+      .from("profiles")
+      .select("firm_id, acting_firm_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const firmIds = new Set<string>();
+    if (prof?.firm_id) firmIds.add(prof.firm_id);
+    if (prof?.acting_firm_id) firmIds.add(prof.acting_firm_id);
+
+    // Also check firm_invites
+    if (userEmail) {
+      const { data: invites } = await supabaseAdmin
+        .from("firm_invites")
+        .select("firm_id")
+        .ilike("email", userEmail);
+      invites?.forEach((i) => {
+        if (i.firm_id) firmIds.add(i.firm_id);
+      });
+    }
+
+    // Build query for user firms
+    let query = supabaseAdmin
       .from("firms")
       .select("id, name, logo_url, owner_email, phone, city, status")
-      .eq("status", "active")
-      .order("name");
+      .eq("status", "active");
+
+    const orClauses: string[] = [];
+    if (firmIds.size > 0) {
+      orClauses.push(`id.in.(${Array.from(firmIds).join(",")})`);
+    }
+    if (userEmail) {
+      orClauses.push(`owner_email.ilike.${userEmail}`);
+    }
+
+    if (orClauses.length > 0) {
+      query = query.or(orClauses.join(","));
+    } else {
+      return [];
+    }
+
+    const { data, error } = await query.order("name");
     if (error) throw new Error(error.message);
     return (data ?? []).map((f) => ({
       ...f,
       role: "admin",
-      is_current: false,
+      is_current: f.id === prof?.acting_firm_id || f.id === prof?.firm_id,
     }));
   });
 
@@ -636,7 +712,10 @@ export const switchActiveFirm = createServerFn({ method: "POST" })
     const userId = context.userId;
     const { error } = await supabaseAdmin
       .from("profiles")
-      .update({ acting_firm_id: data.firmId })
+      .update({
+        acting_firm_id: data.firmId,
+        firm_id: data.firmId || undefined,
+      })
       .eq("id", userId);
     if (error) throw new Error(error.message);
     return { success: true };

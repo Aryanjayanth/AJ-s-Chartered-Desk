@@ -3291,11 +3291,27 @@ DROP FUNCTION IF EXISTS public.set_acting_firm(uuid);
 CREATE OR REPLACE FUNCTION public.current_firm_id() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   select case
-    when public.is_super_admin() then p.acting_firm_id
+    when public.is_super_admin() then coalesce(
+      p.acting_firm_id,
+      p.firm_id,
+      (select id from public.firms where status = 'active' order by (id <> '00000000-0000-0000-0000-000000000001'), created_at desc limit 1)
+    )
     when p.acting_firm_id is not null and exists (
       select 1 from public.firms f where f.id = p.acting_firm_id and f.status = 'active'
     ) then p.acting_firm_id
-    else (select f.id from public.firms f where f.id = p.firm_id and f.status = 'active')
+    when p.firm_id is not null and exists (
+      select 1 from public.firms f where f.id = p.firm_id and f.status = 'active'
+    ) then p.firm_id
+    else (
+      select f.id from public.firms f
+      where f.status = 'active'
+        and (
+          lower(f.owner_email) = lower(auth.jwt()->>'email')
+          or exists (select 1 from public.firm_invites fi where fi.firm_id = f.id and lower(fi.email) = lower(auth.jwt()->>'email'))
+        )
+      order by (f.id <> '00000000-0000-0000-0000-000000000001'), f.created_at desc
+      limit 1
+    )
   end
   from public.profiles p where p.id = auth.uid() $$;
 
@@ -3313,7 +3329,10 @@ begin
     end if;
   end if;
 
-  update public.profiles set acting_firm_id = _firm_id where id = auth.uid();
+  update public.profiles
+  set acting_firm_id = _firm_id,
+      firm_id = coalesce(_firm_id, firm_id)
+  where id = auth.uid();
 end $$;
 
 -- 6. User Firms List RPC
@@ -3344,7 +3363,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
     (f.id = public.current_firm_id()) as is_current
   from public.firms f
   left join public.profiles p on p.id = auth.uid()
-  left join public.user_roles ur on ur.user_id = auth.uid() and ur.firm_id = f.id
+  left join public.user_roles ur on ur.user_id = auth.uid()
   where f.status = 'active'
     and (
       public.is_super_admin()

@@ -37,7 +37,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { AvatarPicker, EntityAvatar } from "@/components/app/EntityAvatar";
 import { useSuperAdmin } from "@/hooks/use-firm";
 import { useAdminPrivacy } from "@/hooks/use-admin-privacy";
-import { createFirm, deleteFirm } from "@/lib/firms.functions";
+import { createFirm, deleteFirm, switchActiveFirm } from "@/lib/firms.functions";
 import { InviteDialog } from "@/components/app/InviteDialog";
 import { errMsg, fmtDate, inr } from "@/lib/format";
 
@@ -53,7 +53,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
 
 function AdminPage() {
   const { isSuperAdmin, loading } = useSuperAdmin();
-  const { privacyMode } = useAdminPrivacy();
+  const { privacyMode, setPrivacyMode } = useAdminPrivacy();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -108,9 +108,13 @@ function AdminPage() {
   const all = q.data ?? [];
 
   const openFirm = async (id: string) => {
-    if (privacyMode) return;
-    const { error } = await supabase.rpc("set_acting_firm", { _firm_id: id });
-    if (error) return toast.error(errMsg(error));
+    try {
+      await switchActiveFirm({ data: { firmId: id } });
+    } catch {
+      const { error } = await supabase.rpc("set_acting_firm", { _firm_id: id });
+      if (error) return toast.error(errMsg(error));
+    }
+    setPrivacyMode(false);
     await qc.invalidateQueries();
     navigate({ to: "/dashboard" });
   };
@@ -285,26 +289,14 @@ function AdminPage() {
                 {/* Bottom Action Buttons: Aligned cleanly */}
                 <div className="mt-auto space-y-2 border-t border-border/50 pt-4">
                   {/* Primary Open Firm Action */}
-                  {privacyMode ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-9 w-full text-xs opacity-75 cursor-not-allowed"
-                      disabled
-                    >
-                      <Lock className="mr-1.5 h-3.5 w-3.5" />
-                      Open firm
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="h-9 w-full text-xs font-medium"
-                      onClick={() => openFirm(f.id)}
-                    >
-                      Open firm
-                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    className="h-9 w-full text-xs font-medium cursor-pointer"
+                    onClick={() => openFirm(f.id)}
+                  >
+                    Open firm
+                    <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                  </Button>
 
                   {/* Secondary Actions in Balanced 2-Column Grid */}
                   <div className="grid grid-cols-2 gap-2">

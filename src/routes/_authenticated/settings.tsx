@@ -51,16 +51,15 @@ export function SettingsPage() {
   const q = useQuery({
     queryKey: ["settings", currentFirm?.id],
     queryFn: async () => {
-      if (currentFirm?.id) {
-        const { data } = await supabase
-          .from("settings")
-          .select("*")
-          .eq("firm_id", currentFirm.id)
-          .maybeSingle();
-        if (data) return data;
-      }
-      return (await supabase.from("settings").select("*").maybeSingle()).data;
+      if (!currentFirm?.id) return null;
+      const { data } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("firm_id", currentFirm.id)
+        .maybeSingle();
+      return data;
     },
+    enabled: Boolean(currentFirm?.id),
   });
 
   useEffect(() => {

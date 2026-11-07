@@ -256,7 +256,7 @@ function InvoiceView() {
             onClick={() => {
               setEditFirmId(effectiveFirmId || "");
               setEditCustomName(
-                inv.description || activeSettings?.firm_name || activeFirm?.name || "",
+                activeSettings?.firm_name || activeFirm?.name || inv.description || "",
               );
               setEditInvoiceNo(inv.invoice_no || "");
               setEditHeaderOpen(true);
@@ -291,7 +291,7 @@ function InvoiceView() {
             )}
             <div>
               <div className="text-lg font-bold">
-                {inv.description || activeSettings?.firm_name || activeFirm?.name}
+                {activeSettings?.firm_name || activeFirm?.name || inv.description}
               </div>
               <div className="whitespace-pre-line text-muted-foreground">
                 {activeSettings?.address}
